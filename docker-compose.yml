@@ -159,6 +159,59 @@ services:
     volumes:
       - ./services/data_architecture:/app
 
+  # Document Processing Services
+  unstructured_api:
+    image: unstructuredio/unstructured:0.14.8
+    container_name: aos_unstructured_api
+    restart: unless-stopped
+    ports:
+      - "${UNSTRUCTURED_PORT:-8030}:8000"
+    environment:
+      - UNSTRUCTURED_API_KEY=${UNSTRUCTURED_API_KEY}
+    networks:
+      - aos_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  document_engine:
+    build: ./services/document_processing/document_engine
+    container_name: aos_document_engine
+    restart: unless-stopped
+    ports:
+      - "${DOCUMENT_ENGINE_PORT:-8031}:8031"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - UNSTRUCTURED_API_URL=http://unstructured_api:8000
+      - UNSTRUCTURED_API_KEY=${UNSTRUCTURED_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/document_processing/document_engine:/app
+      - ./logs:/app/logs
+
+  web_intelligence_service:
+    build: ./services/intelligence/web_intelligence_service
+    container_name: aos_web_intelligence_service
+    restart: unless-stopped
+    ports:
+      - "${WEB_INTEL_PORT:-8032}:8032"
+    environment:
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/intelligence/web_intelligence_service:/app
+      - ./logs:/app/logs
+
   # Message Queue - Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0

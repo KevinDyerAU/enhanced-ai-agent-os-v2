@@ -119,6 +119,40 @@ All Phase 3 acceptance criteria have been met successfully.
 
 All Phase 4 acceptance criteria have been met successfully.
 
+---
+
+## Data Ingestion Layer ✅
+
+**Status:** COMPLETE
+
+### Implemented Services:
+- **Document Processing Service** (Port 8031): File upload and parsing using unstructured.io
+- **Web Intelligence Service** (Port 8032): Web scraping and crawling using Firecrawl API
+
+### Key Components:
+- **Unstructured API** (Port 8030): Self-hosted document processing engine
+- **Document Engine**: FastAPI service with `/parse` endpoint for file uploads
+- **Web Intelligence**: FastAPI service with `/scrape` endpoint for URL scraping
+- **DocumentParser Class**: Handles communication with local unstructured.io API
+- **FirecrawlClient Class**: Encapsulates Firecrawl API interactions
+
+### API Endpoints:
+- **POST /parse**: Upload and parse documents (PDF, TXT, DOCX, etc.) returning structured JSON
+- **POST /scrape**: Scrape web pages returning markdown content and metadata
+- **GET /healthz**: Health check endpoints for both services
+
+### Services Running:
+- **Document Engine**: localhost:8031 (health check: healthy, unstructured.io: integrated)
+- **Web Intelligence Service**: localhost:8032 (health check: healthy, Firecrawl: integrated)
+- **Unstructured API**: localhost:8030 (document processing backend)
+
+### Configuration Updates:
+- Updated `.env.example` with `UNSTRUCTURED_API_URL`, `UNSTRUCTURED_API_KEY`, `FIRECRAWL_API_KEY`
+- Updated `docker-compose.yml` with new service definitions and dependencies
+- Both services include health checks and proper error handling
+
+The Enhanced AI Agent OS v2 now includes comprehensive data ingestion capabilities for both document processing and web intelligence gathering.
+
 ## Development
 
 See the `/docs` directory for detailed development guides and API documentation.
