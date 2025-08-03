@@ -1,11 +1,18 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import MissionControlDashboard from './components/mission_control/MissionControlDashboard'
+import AirlockPage from './pages/AirlockPage'
 import './App.css'
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <MissionControlDashboard />
-    </div>
+    <Router>
+      <div className="min-h-screen bg-gray-50">
+        <Routes>
+          <Route path="/" element={<MissionControlDashboard />} />
+          <Route path="/airlock" element={<AirlockPage />} />
+        </Routes>
+      </div>
+    </Router>
   )
 }
 

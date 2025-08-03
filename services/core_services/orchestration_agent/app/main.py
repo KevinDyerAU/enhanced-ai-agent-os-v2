@@ -7,6 +7,7 @@ import asyncpg
 import os
 from datetime import datetime
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -102,8 +103,8 @@ async def create_task(task_request: TaskRequest):
             "pending",
             task_request.priority,
             task_request.requester_id,
-            task_request.input_data,
-            task_request.metadata
+            json.dumps(task_request.input_data),
+            json.dumps(task_request.metadata)
         )
         
         logger.info(f"Created task {task_id} of type {task_request.type}")
@@ -117,9 +118,9 @@ async def create_task(task_request: TaskRequest):
             priority=row['priority'],
             assigned_agent_id=str(row['assigned_agent_id']) if row['assigned_agent_id'] else None,
             requester_id=row['requester_id'],
-            input_data=row['input_data'],
-            output_data=row['output_data'] or {},
-            metadata=row['metadata'] or {},
+            input_data=json.loads(row['input_data']) if isinstance(row['input_data'], str) else row['input_data'],
+            output_data=json.loads(row['output_data']) if isinstance(row['output_data'], str) else (row['output_data'] or {}),
+            metadata=json.loads(row['metadata']) if isinstance(row['metadata'], str) else (row['metadata'] or {}),
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )
@@ -152,9 +153,9 @@ async def get_tasks(status: Optional[str] = None, limit: int = 50):
                 priority=row['priority'],
                 assigned_agent_id=str(row['assigned_agent_id']) if row['assigned_agent_id'] else None,
                 requester_id=row['requester_id'],
-                input_data=row['input_data'],
-                output_data=row['output_data'] or {},
-                metadata=row['metadata'] or {},
+                input_data=json.loads(row['input_data']) if isinstance(row['input_data'], str) else row['input_data'],
+                output_data=json.loads(row['output_data']) if isinstance(row['output_data'], str) else (row['output_data'] or {}),
+                metadata=json.loads(row['metadata']) if isinstance(row['metadata'], str) else (row['metadata'] or {}),
                 created_at=row['created_at'],
                 updated_at=row['updated_at']
             ))
@@ -186,9 +187,9 @@ async def get_task(task_id: str):
             priority=row['priority'],
             assigned_agent_id=str(row['assigned_agent_id']) if row['assigned_agent_id'] else None,
             requester_id=row['requester_id'],
-            input_data=row['input_data'],
-            output_data=row['output_data'] or {},
-            metadata=row['metadata'] or {},
+            input_data=json.loads(row['input_data']) if isinstance(row['input_data'], str) else row['input_data'],
+            output_data=json.loads(row['output_data']) if isinstance(row['output_data'], str) else (row['output_data'] or {}),
+            metadata=json.loads(row['metadata']) if isinstance(row['metadata'], str) else (row['metadata'] or {}),
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )
