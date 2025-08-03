@@ -216,7 +216,7 @@ class CampaignManager:
                     post["status"],
                     datetime.utcnow() if not request.schedule_time else datetime.fromisoformat(request.schedule_time),
                     datetime.utcnow() if post["status"] == "published" else None,
-                    {"estimated_reach": post.get("estimated_reach", 0)}
+                    json.dumps({"estimated_reach": post.get("estimated_reach", 0)})
                     )
                     
             finally:
