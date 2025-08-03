@@ -191,25 +191,23 @@ class CampaignManager:
             try:
                 await conn.execute("""
                     INSERT INTO social_media_campaigns 
-                    (id, name, description, target_audience, start_date, end_date, status, platforms, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                """, 
+                    (id, name, description, target_platforms, start_date, end_date, status)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """,
                 campaign_id,
                 f"Campaign {campaign_id[:8]}",
                 request.content[:200],
-                request.target_audience or "general",
+                request.platforms,
                 datetime.utcnow(),
                 datetime.utcnow() + timedelta(days=7),
-                "active",
-                request.platforms,
-                {"campaign_type": request.campaign_type}
+                "active"
                 )
                 
                 for post in posts_created:
                     await conn.execute("""
                         INSERT INTO social_media_posts
-                        (id, campaign_id, platform, content, status, scheduled_time, published_time, engagement_metrics, metadata)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        (id, campaign_id, platform, content, status, scheduled_for, published_at, engagement_metrics)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     """,
                     post["id"],
                     campaign_id,
@@ -218,8 +216,7 @@ class CampaignManager:
                     post["status"],
                     datetime.utcnow() if not request.schedule_time else datetime.fromisoformat(request.schedule_time),
                     datetime.utcnow() if post["status"] == "published" else None,
-                    {"estimated_reach": post.get("estimated_reach", 0)},
-                    {"media_urls": request.media_urls}
+                    {"estimated_reach": post.get("estimated_reach", 0)}
                     )
                     
             finally:
