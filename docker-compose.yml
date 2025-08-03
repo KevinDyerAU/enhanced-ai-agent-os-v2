@@ -31,6 +31,64 @@ services:
     volumes:
       - ./services/core_services/orchestration_agent:/app
 
+  # Creator Layer Services
+  ideation_agent:
+    build: ./services/creator_layer/ideation_agent
+    environment:
+      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/creator_layer/ideation_agent:/app
+
+  design_agent:
+    build: ./services/creator_layer/design_agent
+    environment:
+      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - CANVA_API_KEY=${CANVA_API_KEY}
+    ports:
+      - "8002:8002"
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/creator_layer/design_agent:/app
+
+  video_agent:
+    build: ./services/creator_layer/video_agent
+    environment:
+      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DESCRIPT_API_KEY=${DESCRIPT_API_KEY}
+    ports:
+      - "8003:8003"
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/creator_layer/video_agent:/app
+
+  social_media_manager:
+    build: ./services/creator_layer/social_media_manager
+    environment:
+      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
+      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+    ports:
+      - "8004:8004"
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/creator_layer/social_media_manager:/app
+
   # Frontend UI
   ui:
     build: ./ui
