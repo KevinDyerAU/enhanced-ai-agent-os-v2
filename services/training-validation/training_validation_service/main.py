@@ -11,6 +11,9 @@ import json
 import tempfile
 from integrations.web_intelligence_client import WebIntelligenceClient
 from integrations.document_processing_client import DocumentProcessingClient
+from validation_coordinator import run_validation_engines, generate_validation_report, create_validation_asset
+from airlock_integration import AirlockIntegration
+import httpx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,17 +30,19 @@ app.add_middleware(
 
 web_intelligence_client: Optional[WebIntelligenceClient] = None
 document_processing_client: Optional[DocumentProcessingClient] = None
+airlock_client: Optional[AirlockIntegration] = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize integration clients on startup"""
-    global web_intelligence_client, document_processing_client
+    global web_intelligence_client, document_processing_client, airlock_client
     
     web_intelligence_url = os.getenv("WEB_INTELLIGENCE_URL", "http://web_intelligence_service:8032")
     document_engine_url = os.getenv("DOCUMENT_ENGINE_URL", "http://document_engine:8031")
     
     web_intelligence_client = WebIntelligenceClient(web_intelligence_url)
     document_processing_client = DocumentProcessingClient(document_engine_url)
+    airlock_client = AirlockIntegration()
     
     logger.info("Training Validation Service initialized with integrations")
 
@@ -75,6 +80,16 @@ class DocumentUploadResponse(BaseModel):
     file_type: str
     file_size_bytes: int
     processing_status: str
+
+class ValidationRequest(BaseModel):
+    strictness_level: Optional[str] = "normal"
+    reviewer_id: Optional[str] = "system"
+    submit_for_review: Optional[bool] = True
+
+class AirlockSubmissionRequest(BaseModel):
+    asset_id: str
+    reviewer_id: str
+    priority: Optional[str] = "normal"
 
 @app.get("/")
 async def root():
@@ -288,10 +303,23 @@ async def upload_document(session_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/validation-sessions/{session_id}/validate")
-async def execute_validation(session_id: str):
-    """Execute validation for a session"""
+async def execute_validation(session_id: str, request: ValidationRequest = ValidationRequest()):
+    """Execute validation for a session and create validation report as creative asset for airlock review"""
     try:
         conn = await get_db_connection()
+        
+        session = await conn.fetchrow(
+            """SELECT vs.*, tu.unit_code, tu.title as unit_title, tu.elements, tu.performance_criteria,
+                      tu.knowledge_evidence, tu.performance_evidence, tu.foundation_skills, tu.assessment_conditions
+               FROM validation_sessions vs
+               JOIN training_units tu ON vs.training_unit_id = tu.id
+               WHERE vs.id = $1""",
+            uuid.UUID(session_id)
+        )
+        
+        if not session:
+            await conn.close()
+            raise HTTPException(status_code=404, detail="Validation session not found")
         
         await conn.execute(
             """UPDATE validation_sessions 
@@ -300,17 +328,37 @@ async def execute_validation(session_id: str):
             uuid.UUID(session_id)
         )
         
-        
-        await conn.execute(
-            """INSERT INTO validation_results 
-               (session_id, validation_type, status, score, findings)
-               VALUES ($1, $2, $3, $4, $5)""",
-            uuid.UUID(session_id),
-            "assessment_conditions",
-            "completed",
-            85.5,
-            json.dumps({"message": "Validation completed successfully"})
+        documents = await conn.fetch(
+            "SELECT * FROM validation_documents WHERE session_id = $1",
+            uuid.UUID(session_id)
         )
+        
+        validation_results = await run_validation_engines(session, documents)
+        
+        result_id = await conn.fetchval(
+            """INSERT INTO validation_results 
+               (session_id, validation_type, status, score, findings, recommendations, validated_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+            uuid.UUID(session_id),
+            "comprehensive",
+            "completed",
+            validation_results["overall_score"],
+            json.dumps(validation_results["findings"]),
+            json.dumps(validation_results["recommendations"]),
+            "system"
+        )
+        
+        report_content = await generate_validation_report(session, validation_results)
+        
+        asset_id = await create_validation_asset(conn, session, report_content, result_id)
+        
+        airlock_response = None
+        if request.submit_for_review and airlock_client:
+            airlock_response = await airlock_client.submit_for_review(
+                str(asset_id), 
+                request.reviewer_id,
+                "normal"
+            )
         
         await conn.execute(
             """UPDATE validation_sessions 
@@ -321,7 +369,20 @@ async def execute_validation(session_id: str):
         
         await conn.close()
         
-        return {"message": "Validation executed successfully", "session_id": session_id}
+        response = {
+            "session_id": session_id,
+            "status": "completed",
+            "result_id": str(result_id),
+            "asset_id": str(asset_id),
+            "message": "Validation completed successfully. Report created and ready for review.",
+            "overall_score": validation_results["overall_score"],
+            "findings_summary": validation_results["summary"]
+        }
+        
+        if airlock_response:
+            response["airlock_submission"] = airlock_response
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error executing validation: {e}")
@@ -359,6 +420,65 @@ async def get_validation_results(session_id: str):
         
     except Exception as e:
         logger.error(f"Error getting validation results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/validation-reports/{asset_id}/submit-review")
+async def submit_validation_report_for_review(asset_id: str, request: AirlockSubmissionRequest):
+    """Submit a validation report for airlock review"""
+    try:
+        if not airlock_client:
+            raise HTTPException(status_code=503, detail="Airlock integration not available")
+        
+        result = await airlock_client.submit_for_review(
+            request.asset_id,
+            request.reviewer_id,
+            request.priority
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error submitting validation report for review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/validation-reports/{asset_id}/status")
+async def get_validation_report_status(asset_id: str):
+    """Get the airlock status of a validation report"""
+    try:
+        if not airlock_client:
+            raise HTTPException(status_code=503, detail="Airlock integration not available")
+        
+        result = await airlock_client.get_asset_status(asset_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error getting validation report status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/validation-reports/pending")
+async def get_pending_validation_reports():
+    """Get all pending validation reports in the airlock system"""
+    try:
+        if not airlock_client:
+            raise HTTPException(status_code=503, detail="Airlock integration not available")
+        
+        result = await airlock_client.get_pending_validation_reports()
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error getting pending validation reports: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

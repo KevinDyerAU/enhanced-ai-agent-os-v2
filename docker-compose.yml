@@ -170,6 +170,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - WEB_INTELLIGENCE_URL=http://web_intelligence_service:8032
       - DOCUMENT_ENGINE_URL=http://document_engine:8031
+      - AIRLOCK_URL=http://airlock_system:8007
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REDIS_URL=redis://redis:6379
       - PINECONE_API_KEY=${PINECONE_API_KEY}
@@ -179,6 +180,7 @@ services:
       - postgres
       - web_intelligence_service
       - document_engine
+      - airlock_system
     networks:
       - aos_network
     volumes:
