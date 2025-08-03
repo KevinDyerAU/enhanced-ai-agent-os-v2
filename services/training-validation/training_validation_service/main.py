@@ -58,7 +58,7 @@ async def startup_event():
     logger.info("Training Validation Service initialized with Phase 3 features")
 
 async def get_db_connection():
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/aos_db")
     if not database_url:
         raise HTTPException(status_code=500, detail="Database URL not configured")
     return await asyncpg.connect(database_url)

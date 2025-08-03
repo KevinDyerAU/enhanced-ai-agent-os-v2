@@ -1,4 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { Card, CardHeader, CardContent, CardTitle, CardDescription } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Label } from './ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { QuestionLibrary } from './QuestionLibrary';
+import { ReportViewer } from './ReportViewer';
+import { AnalyticsDashboard } from './AnalyticsDashboard';
 
 interface ValidationSession {
   id: string;
@@ -89,106 +98,128 @@ const TrainingValidationDashboard: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Training Validation Dashboard</h1>
-        <button
-          onClick={() => setShowCreateSession(true)}
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-        >
-          New Validation Session
-        </button>
-      </div>
-
-      {showCreateSession && (
-        <div className="mb-6 p-4 border rounded-lg bg-gray-50">
-          <h2 className="text-lg font-semibold mb-4">Create New Validation Session</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Session Name</label>
-              <input
-                type="text"
-                value={newSessionData.name}
-                onChange={(e) => setNewSessionData({...newSessionData, name: e.target.value})}
-                className="w-full p-2 border rounded"
-                placeholder="Enter session name"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Unit Code</label>
-              <input
-                type="text"
-                value={newSessionData.unit_code}
-                onChange={(e) => setNewSessionData({...newSessionData, unit_code: e.target.value})}
-                className="w-full p-2 border rounded"
-                placeholder="e.g., BSBCMM411"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Description</label>
-              <textarea
-                value={newSessionData.description}
-                onChange={(e) => setNewSessionData({...newSessionData, description: e.target.value})}
-                className="w-full p-2 border rounded"
-                rows={3}
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={handleCreateSession}
-                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-              >
-                Create Session
-              </button>
-              <button
-                onClick={() => setShowCreateSession(false)}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Training Validation Dashboard</h1>
+          <p className="text-gray-600 mt-2">Validate training materials against official unit requirements</p>
         </div>
-      )}
 
-      <div className="grid gap-4">
-        {sessions.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            No validation sessions found. Create your first session to get started.
-          </div>
-        ) : (
-          sessions.map((session) => (
-            <div key={session.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-lg font-semibold">{session.name}</h3>
-                  <p className="text-sm text-gray-600">
-                    Unit: {session.unit_code} - {session.unit_title}
-                  </p>
-                  {session.description && (
-                    <p className="text-sm text-gray-700 mt-1">{session.description}</p>
-                  )}
-                  <p className="text-xs text-gray-500 mt-2">
-                    Created: {new Date(session.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    session.status === 'completed' ? 'bg-green-100 text-green-800' :
-                    session.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {session.status}
-                  </span>
-                  <button className="text-blue-500 hover:text-blue-700 text-sm">
-                    View Details
-                  </button>
-                </div>
-              </div>
+        <Tabs defaultValue="sessions" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="sessions">Validation Sessions</TabsTrigger>
+            <TabsTrigger value="questions">Question Library</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="sessions" className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold">Validation Sessions</h2>
+              <Button onClick={() => setShowCreateSession(true)}>
+                New Validation Session
+              </Button>
             </div>
-          ))
-        )}
+
+            {showCreateSession && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Create New Validation Session</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="sessionName">Session Name</Label>
+                    <Input
+                      id="sessionName"
+                      placeholder="Enter session name"
+                      value={newSessionData.name}
+                      onChange={(e) => setNewSessionData({...newSessionData, name: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="unitCode">Unit Code</Label>
+                    <Input
+                      id="unitCode"
+                      placeholder="e.g., BSBCMM411"
+                      value={newSessionData.unit_code}
+                      onChange={(e) => setNewSessionData({...newSessionData, unit_code: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      placeholder="Optional description"
+                      value={newSessionData.description}
+                      onChange={(e) => setNewSessionData({...newSessionData, description: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleCreateSession}>Create Session</Button>
+                    <Button variant="outline" onClick={() => setShowCreateSession(false)}>Cancel</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="grid gap-6">
+              {sessions.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <p className="text-gray-500">No validation sessions found. Create your first session to get started.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                sessions.map((session) => (
+                  <Card key={session.id} className="hover:shadow-md transition-shadow">
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle>{session.name}</CardTitle>
+                          <CardDescription>
+                            Unit: {session.unit_code} - {session.unit_title}
+                          </CardDescription>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-sm ${
+                          session.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          session.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {session.status}
+                        </span>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {session.description && (
+                        <p className="text-gray-600 mb-4">{session.description}</p>
+                      )}
+                      <p className="text-sm text-gray-500 mb-4">
+                        Created: {new Date(session.created_at).toLocaleDateString()}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button size="sm">View Details</Button>
+                        <Button size="sm" variant="outline">Upload Documents</Button>
+                        <Button size="sm" variant="outline">Run Validation</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="questions">
+            <QuestionLibrary />
+          </TabsContent>
+
+          <TabsContent value="reports">
+            <ReportViewer reportId="1" />
+          </TabsContent>
+
+          <TabsContent value="analytics">
+            <AnalyticsDashboard />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
