@@ -159,6 +159,32 @@ services:
     volumes:
       - ./services/data_architecture:/app
 
+  # Training Validation Service
+  training_validation_service:
+    build: ./services/training-validation/training_validation_service
+    container_name: aos_training_validation_service
+    restart: unless-stopped
+    ports:
+      - "${TRAINING_VALIDATION_PORT:-8033}:8033"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - WEB_INTELLIGENCE_URL=http://web_intelligence_service:8032
+      - DOCUMENT_ENGINE_URL=http://document_engine:8031
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east1-gcp}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      - postgres
+      - web_intelligence_service
+      - document_engine
+    networks:
+      - aos_network
+    volumes:
+      - ./services/training-validation/training_validation_service:/app
+      - ./logs:/app/logs
+
   # Document Processing Services
   unstructured_api:
     image: unstructuredio/unstructured:0.14.8
