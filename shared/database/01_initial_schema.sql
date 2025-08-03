@@ -41,11 +41,14 @@ CREATE TABLE tasks (
 CREATE TABLE creative_assets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id UUID REFERENCES tasks(id),
+    type VARCHAR(100) NOT NULL, -- 'image', 'video', 'text', 'design', 'campaign'
     asset_type VARCHAR(100) NOT NULL, -- 'image', 'video', 'text', 'design', 'campaign'
     title VARCHAR(500),
     description TEXT,
+    content_url VARCHAR(1000),
     file_url VARCHAR(1000),
     file_metadata JSONB DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
     status VARCHAR(50) DEFAULT 'draft', -- 'draft', 'pending_review', 'approved', 'rejected', 'published'
     brand_compliance_score DECIMAL(3,2),
     quality_metrics JSONB DEFAULT '{}',
@@ -67,11 +70,14 @@ CREATE TABLE audit_logs (
     details JSONB NOT NULL DEFAULT '{}',
     ip_address INET,
     user_agent TEXT,
+    session_id VARCHAR(255),
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE compliance_validations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type VARCHAR(100) NOT NULL, -- 'task', 'asset', 'campaign'
+    entity_id UUID NOT NULL,
     asset_id UUID REFERENCES creative_assets(id),
     validation_type VARCHAR(100) NOT NULL, -- 'brand_guidelines', 'legal_review', 'content_policy'
     status VARCHAR(50) NOT NULL, -- 'pending', 'passed', 'failed', 'requires_review'
