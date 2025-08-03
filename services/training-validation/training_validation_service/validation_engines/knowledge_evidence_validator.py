@@ -1,6 +1,8 @@
 import logging
 from typing import Dict, Any, List
 import json
+import re
+from .validation_gap import ValidationGap
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,8 @@ class KnowledgeEvidenceValidator:
         requirement_lower = requirement.lower()
         content_lower = content.lower()
         
+        semantic_score = self._semantic_similarity_score(requirement_lower, content_lower)
+        
         key_terms = self._extract_key_terms(requirement_lower)
         
         matches = 0
@@ -93,12 +97,13 @@ class KnowledgeEvidenceValidator:
             if term in content_lower:
                 matches += 1
         
-        coverage_score = matches / total_terms if total_terms > 0 else 0
+        keyword_score = matches / total_terms if total_terms > 0 else 0
         
-        if requirement_lower in content_lower:
-            coverage_score = min(1.0, coverage_score + 0.3)
+        exact_match_bonus = 0.3 if requirement_lower in content_lower else 0
         
-        return coverage_score
+        coverage_score = (semantic_score * 0.5 + keyword_score * 0.4 + exact_match_bonus * 0.1)
+        
+        return min(1.0, coverage_score)
     
     def _extract_key_terms(self, text: str) -> List[str]:
         """Extract key terms from requirement text"""
@@ -203,3 +208,45 @@ class KnowledgeEvidenceValidator:
             overall_score = min(100, overall_score)  # Cap at 100
         
         return min(100, max(0, overall_score))
+    
+    def _semantic_similarity_score(self, requirement: str, content: str) -> float:
+        """Calculate semantic similarity between requirement and content"""
+        req_words = set(self._extract_key_terms(requirement.lower()))
+        content_words = set(self._extract_key_terms(content.lower()))
+        
+        intersection = len(req_words.intersection(content_words))
+        union = len(req_words.union(content_words))
+        
+        if union == 0:
+            return 0.0
+        
+        jaccard_score = intersection / union
+        
+        if requirement.lower() in content.lower():
+            jaccard_score += 0.3
+        
+        related_terms = self._find_related_terms(requirement.lower(), content.lower())
+        jaccard_score += len(related_terms) * 0.1
+        
+        return min(1.0, jaccard_score)
+    
+    def _find_related_terms(self, requirement: str, content: str) -> List[str]:
+        """Find semantically related terms"""
+        related_mappings = {
+            'safety': ['hazard', 'risk', 'protection', 'secure'],
+            'quality': ['standard', 'excellence', 'grade', 'level'],
+            'process': ['procedure', 'method', 'workflow', 'system'],
+            'communication': ['interaction', 'dialogue', 'discussion', 'exchange'],
+            'management': ['administration', 'supervision', 'control', 'oversight'],
+            'technical': ['technology', 'equipment', 'machinery', 'tools'],
+            'compliance': ['regulation', 'standard', 'requirement', 'guideline']
+        }
+        
+        related_found = []
+        for term, related in related_mappings.items():
+            if term in requirement:
+                for related_term in related:
+                    if related_term in content:
+                        related_found.append(related_term)
+        
+        return related_found

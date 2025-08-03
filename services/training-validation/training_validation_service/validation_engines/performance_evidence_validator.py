@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, List
 import json
+from .validation_gap import ValidationGap
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class PerformanceEvidenceValidator:
                 "overall_score": 0,
                 "findings": {"error": "No performance evidence requirements found in training unit"},
                 "recommendations": ["Retrieve complete training unit data with performance evidence requirements"],
+                "gaps": [],
                 "assessment_methods": {},
                 "evidence_collection": {}
             }
@@ -30,7 +32,8 @@ class PerformanceEvidenceValidator:
         
         evidence_collection = await self._analyze_evidence_collection(unit_performance_evidence, documents)
         
-        recommendations = self._generate_pe_recommendations(assessment_methods, evidence_collection)
+        gaps = self._identify_pe_gaps(assessment_methods, evidence_collection)
+        recommendations = self._generate_pe_recommendations(assessment_methods, evidence_collection, gaps)
         
         overall_score = self._calculate_pe_score(assessment_methods, evidence_collection)
         
@@ -43,6 +46,7 @@ class PerformanceEvidenceValidator:
                 "performance_criteria_alignment": await self._analyze_performance_criteria_alignment(unit_performance_evidence, documents)
             },
             "recommendations": recommendations,
+            "gaps": [gap.to_dict() for gap in gaps],
             "assessment_methods": assessment_methods,
             "evidence_collection": evidence_collection
         }
@@ -168,30 +172,72 @@ class PerformanceEvidenceValidator:
         
         return alignment_analysis
     
-    def _generate_pe_recommendations(self, assessment_methods: Dict[str, Any], evidence_collection: Dict[str, Any]) -> List[str]:
+    def _identify_pe_gaps(self, assessment_methods: Dict[str, Any], evidence_collection: Dict[str, Any]) -> List[ValidationGap]:
+        """Identify Performance Evidence gaps"""
+        gaps = []
+        
+        if len(assessment_methods["identified_methods"]) < 2:
+            gap = ValidationGap(
+                gap_type="Insufficient Assessment Methods",
+                description=f"Only {len(assessment_methods['identified_methods'])} assessment method(s) identified. Multiple methods needed for comprehensive evaluation.",
+                recommendation="Include at least 2-3 different assessment methods (e.g., observation, demonstration, portfolio)",
+                confidence_score=0.90,
+                category="performance_evidence",
+                severity="high"
+            )
+            gaps.append(gap)
+        
+        if assessment_methods["method_clarity"] < 70:
+            gap = ValidationGap(
+                gap_type="Unclear Assessment Methods",
+                description=f"Assessment method descriptions lack clarity (score: {assessment_methods['method_clarity']}/100)",
+                recommendation="Provide detailed, step-by-step descriptions of how each assessment method will be conducted",
+                confidence_score=0.85,
+                category="performance_evidence",
+                severity="medium"
+            )
+            gaps.append(gap)
+        
+        if len(evidence_collection["evidence_types"]) < 3:
+            gap = ValidationGap(
+                gap_type="Limited Evidence Types",
+                description=f"Only {len(evidence_collection['evidence_types'])} evidence type(s) specified. Diverse evidence needed.",
+                recommendation="Specify multiple evidence types (written work, practical demonstration, video recording, etc.)",
+                confidence_score=0.80,
+                category="performance_evidence",
+                severity="medium"
+            )
+            gaps.append(gap)
+        
+        if evidence_collection["storage_procedures"] < 60:
+            gap = ValidationGap(
+                gap_type="Missing Storage Procedures",
+                description="Evidence storage and maintenance procedures not clearly defined",
+                recommendation="Define clear procedures for storing, organizing, and maintaining collected evidence",
+                confidence_score=0.85,
+                category="performance_evidence",
+                severity="medium"
+            )
+            gaps.append(gap)
+        
+        return gaps
+    
+    def _generate_pe_recommendations(self, assessment_methods: Dict[str, Any], evidence_collection: Dict[str, Any], gaps: List[ValidationGap]) -> List[str]:
         """Generate recommendations for Performance Evidence"""
         recommendations = []
         
-        if len(assessment_methods["identified_methods"]) < 2:
-            recommendations.append("Include multiple assessment methods to ensure comprehensive performance evaluation")
+        # Add gap-based recommendations
+        for gap in gaps:
+            recommendations.append(gap.recommendation)
         
-        if assessment_methods["method_clarity"] < 70:
-            recommendations.append("Provide clearer descriptions of assessment methods and procedures")
-        
-        if assessment_methods["method_appropriateness"] < 80:
-            recommendations.append("Ensure assessment methods are appropriate for the performance requirements")
-        
-        if len(evidence_collection["evidence_types"]) < 3:
-            recommendations.append("Specify diverse types of evidence to be collected for comprehensive assessment")
-        
-        if evidence_collection["collection_clarity"] < 70:
-            recommendations.append("Clarify evidence collection procedures and requirements")
-        
-        if evidence_collection["storage_procedures"] < 60:
-            recommendations.append("Define clear procedures for storing and maintaining evidence")
+        if self.strictness_level == "strict":
+            if assessment_methods["method_appropriateness"] < 90:
+                recommendations.append("For strict validation: Ensure all assessment methods directly align with industry standards")
+            if evidence_collection["collection_clarity"] < 80:
+                recommendations.append("For strict validation: Provide explicit, unambiguous evidence collection procedures")
         
         if not recommendations:
-            recommendations.append("Performance evidence requirements are well documented")
+            recommendations.append("Performance evidence requirements meet validation standards")
         
         return recommendations
     

@@ -110,6 +110,23 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
 
 """
     
+    all_gaps = []
+    for validation_type, result in validation_results["findings"].items():
+        if "gaps" in result:
+            all_gaps.extend(result["gaps"])
+    
+    if all_gaps:
+        report += f"## Gap Analysis Summary\n"
+        report += f"- **Total Gaps Identified**: {len(all_gaps)}\n"
+        
+        high_gaps = [gap for gap in all_gaps if gap.get("severity") == "high"]
+        medium_gaps = [gap for gap in all_gaps if gap.get("severity") == "medium"]
+        low_gaps = [gap for gap in all_gaps if gap.get("severity") == "low"]
+        
+        report += f"- **High Priority**: {len(high_gaps)}\n"
+        report += f"- **Medium Priority**: {len(medium_gaps)}\n"
+        report += f"- **Low Priority**: {len(low_gaps)}\n\n"
+    
     for validation_type, result in validation_results["findings"].items():
         report += f"### {validation_type.replace('_', ' ').title()}\n"
         report += f"- **Score**: {result.get('overall_score', 0)}/100\n"
@@ -133,6 +150,14 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
                     for finding in result["findings"]:
                         report += f"  - {finding}\n"
             
+            if "gaps" in result and result["gaps"]:
+                report += f"- **Identified Gaps** ({len(result['gaps'])}):\n"
+                for gap in result["gaps"]:
+                    severity_icon = "🔴" if gap.get("severity") == "high" else "🟡" if gap.get("severity") == "medium" else "🟢"
+                    report += f"  {severity_icon} **{gap.get('gap_type', 'Unknown')}** (Confidence: {gap.get('confidence_score', 0):.0%})\n"
+                    report += f"    - *Issue*: {gap.get('description', 'No description')}\n"
+                    report += f"    - *Action*: {gap.get('recommendation', 'No recommendation')}\n"
+            
             if "recommendations" in result and result["recommendations"]:
                 report += f"- **Recommendations**:\n"
                 for rec in result["recommendations"]:
@@ -146,8 +171,19 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
             report += f"- {rec}\n"
         report += "\n"
     
+    high_priority_gaps = [gap for result in validation_results["findings"].values() 
+                         if "gaps" in result 
+                         for gap in result["gaps"] 
+                         if gap.get("severity") == "high"]
+    
+    if high_priority_gaps:
+        report += "## Priority Action Items\n"
+        for i, gap in enumerate(high_priority_gaps, 1):
+            report += f"{i}. **{gap.get('gap_type', 'Unknown')}**: {gap.get('recommendation', 'No recommendation')}\n"
+        report += "\n"
+    
     report += "---\n"
-    report += "*This report was generated automatically by the AOS Training Validation System.*\n"
+    report += "*This report was generated automatically by the AOS Training Validation System with enhanced gap analysis.*\n"
     
     return report
 

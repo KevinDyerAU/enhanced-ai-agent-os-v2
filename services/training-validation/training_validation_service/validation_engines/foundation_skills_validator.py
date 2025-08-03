@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, List
 import json
+from .validation_gap import ValidationGap
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,20 @@ class FoundationSkillsValidator:
         
         unit_foundation_skills = training_unit.get("foundation_skills", [])
         
+        if not unit_foundation_skills:
+            return {
+                "validation_type": "foundation_skills",
+                "overall_score": 0,
+                "findings": {"error": "No foundation skills requirements found in training unit"},
+                "recommendations": ["Retrieve complete training unit data with foundation skills requirements"],
+                "gaps": [],
+                "skill_coverage": {}
+            }
+        
         skills_coverage = await self._analyze_foundation_skills_coverage(unit_foundation_skills, documents)
         
-        recommendations = self._generate_fs_recommendations(skills_coverage)
+        gaps = self._identify_fs_gaps(skills_coverage, unit_foundation_skills)
+        recommendations = self._generate_fs_recommendations(skills_coverage, gaps)
         
         overall_score = self._calculate_fs_score(skills_coverage)
         
@@ -39,6 +51,7 @@ class FoundationSkillsValidator:
                 "covered_categories": len([k for k, v in skills_coverage.items() if v["coverage_score"] > 30])
             },
             "recommendations": recommendations,
+            "gaps": [gap.to_dict() for gap in gaps],
             "skills_breakdown": skills_coverage
         }
     
@@ -91,40 +104,60 @@ class FoundationSkillsValidator:
         
         return coverage_analysis
     
-    def _generate_fs_recommendations(self, skills_coverage: Dict[str, Any]) -> List[str]:
+    def _identify_fs_gaps(self, skills_coverage: Dict[str, Any], unit_foundation_skills: List[Dict]) -> List[ValidationGap]:
+        """Identify Foundation Skills gaps"""
+        gaps = []
+        
+        for skill, analysis in skills_coverage.items():
+            if analysis["coverage_score"] < 50:
+                gap = ValidationGap(
+                    gap_type="Poor Foundation Skill Coverage",
+                    description=f"{skill.title()} foundation skill has poor coverage (score: {analysis['coverage_score']}/100)",
+                    recommendation=f"Integrate {skill} activities throughout training materials and assessments",
+                    confidence_score=0.90,
+                    category="foundation_skills",
+                    severity="high"
+                )
+                gaps.append(gap)
+            elif analysis["coverage_score"] < 70:
+                gap = ValidationGap(
+                    gap_type="Weak Foundation Skill Integration",
+                    description=f"{skill.title()} foundation skill needs stronger integration (score: {analysis['coverage_score']}/100)",
+                    recommendation=f"Enhance {skill} integration with more explicit activities and assessment opportunities",
+                    confidence_score=0.80,
+                    category="foundation_skills",
+                    severity="medium"
+                )
+                gaps.append(gap)
+            
+            if not analysis["assessment_integration"] and analysis["coverage_score"] > 0:
+                gap = ValidationGap(
+                    gap_type="Missing Assessment Integration",
+                    description=f"{skill.title()} foundation skill is present but not integrated into assessments",
+                    recommendation=f"Add explicit {skill} assessment criteria and evaluation methods",
+                    confidence_score=0.85,
+                    category="foundation_skills",
+                    severity="medium"
+                )
+                gaps.append(gap)
+        
+        return gaps
+    
+    def _generate_fs_recommendations(self, skills_coverage: Dict[str, Any], gaps: List[ValidationGap]) -> List[str]:
         """Generate recommendations for Foundation Skills"""
         recommendations = []
         
-        weak_categories = []
-        missing_categories = []
+        # Add gap-based recommendations
+        for gap in gaps:
+            recommendations.append(gap.recommendation)
         
-        for category, analysis in skills_coverage.items():
-            if analysis["coverage_score"] == 0:
-                missing_categories.append(category)
-            elif analysis["coverage_score"] < 50:
-                weak_categories.append(category)
+        if self.strictness_level == "strict":
+            for skill, analysis in skills_coverage.items():
+                if analysis["coverage_score"] < 85:
+                    recommendations.append(f"For strict validation: Strengthen {skill} integration to meet high standards")
         
-        if missing_categories:
-            recommendations.append(f"Add content addressing missing foundation skills: {', '.join(missing_categories)}")
-        
-        if weak_categories:
-            recommendations.append(f"Strengthen coverage of foundation skills: {', '.join(weak_categories)}")
-        
-        non_integrated = [cat for cat, analysis in skills_coverage.items() if not analysis["assessment_integration"] and analysis["coverage_score"] > 0]
-        if non_integrated:
-            recommendations.append(f"Integrate assessment of foundation skills: {', '.join(non_integrated)}")
-        
-        total_categories = len(self.foundation_skills_categories)
-        covered_categories = len([k for k, v in skills_coverage.items() if v["coverage_score"] > 30])
-        coverage_percentage = (covered_categories / total_categories) * 100
-        
-        if coverage_percentage < 60:
-            recommendations.append("Overall foundation skills coverage is below acceptable threshold")
-        elif coverage_percentage >= 90:
-            recommendations.append("Excellent foundation skills coverage achieved")
-        
-        if not recommendations:
-            recommendations.append("Foundation skills are adequately addressed in training materials")
+        if not gaps:
+            recommendations.append("Foundation skills are well integrated into training materials")
         
         return recommendations
     
@@ -154,3 +187,52 @@ class FoundationSkillsValidator:
             overall_score = min(100, overall_score)
         
         return min(100, max(0, overall_score))
+    
+    async def _validate_epc_coverage(self, training_unit: Dict[str, Any], documents: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Validate Elements and Performance Criteria (EPC) coverage"""
+        elements = training_unit.get("elements", [])
+        performance_criteria = training_unit.get("performance_criteria", [])
+        
+        epc_analysis = {
+            "elements_covered": 0,
+            "performance_criteria_covered": 0,
+            "total_elements": len(elements),
+            "total_performance_criteria": len(performance_criteria),
+            "coverage_gaps": []
+        }
+        
+        combined_content = " ".join([doc.get("content_extracted", "") for doc in documents]).lower()
+        
+        for i, element in enumerate(elements):
+            element_text = str(element).lower() if isinstance(element, dict) else element.lower()
+            key_terms = self._extract_element_key_terms(element_text)
+            
+            if any(term in combined_content for term in key_terms):
+                epc_analysis["elements_covered"] += 1
+            else:
+                epc_analysis["coverage_gaps"].append(f"Element {i+1} not adequately covered")
+        
+        for i, pc in enumerate(performance_criteria):
+            pc_text = str(pc).lower() if isinstance(pc, dict) else pc.lower()
+            key_terms = self._extract_element_key_terms(pc_text)
+            
+            if any(term in combined_content for term in key_terms):
+                epc_analysis["performance_criteria_covered"] += 1
+            else:
+                epc_analysis["coverage_gaps"].append(f"Performance Criteria {i+1} not adequately covered")
+        
+        return epc_analysis
+    
+    def _extract_element_key_terms(self, text: str) -> List[str]:
+        """Extract key terms from element or performance criteria text"""
+        common_words = {"the", "and", "or", "of", "to", "in", "for", "with", "by", "from", "a", "an", "is", "are", "be", "have", "has", "will", "can", "may", "must", "should"}
+        
+        words = text.split()
+        key_terms = []
+        
+        for word in words:
+            clean_word = word.strip(".,!?;:")
+            if len(clean_word) > 3 and clean_word not in common_words:
+                key_terms.append(clean_word)
+        
+        return key_terms[:5]  # Return top 5 key terms
