@@ -544,7 +544,7 @@ class AssessmentConditionsValidator:
         return min(100, matches * 10)
     
     def _analyze_instruction_clarity(self, content: str) -> float:
-        """Analyze clarity of assessment instructions using NLP"""
+        """Analyze clarity of assessment instructions using enhanced NLP"""
         if not content:
             return 0
         
@@ -554,13 +554,30 @@ class AssessmentConditionsValidator:
         complex_sentences = sum(1 for s in sentences if len(s.split()) > 25)
         complexity_penalty = (complex_sentences / len(sentences)) * 30 if sentences else 0
         
-        jargon_words = ['assessment', 'criteria', 'evidence', 'portfolio', 'competency']
+        jargon_words = [
+            'assessment', 'criteria', 'evidence', 'portfolio', 'competency',
+            'benchmark', 'rubric', 'holistic', 'formative', 'summative',
+            'authentic', 'validity', 'reliability', 'moderation'
+        ]
         jargon_count = sum(content.lower().count(word) for word in jargon_words)
-        definitions_count = content.lower().count('means') + content.lower().count('refers to') + content.lower().count('defined as')
         
-        jargon_penalty = max(0, (jargon_count - definitions_count) * 2)
+        definition_patterns = [
+            r'\bmeans\b', r'\brefers to\b', r'\bdefined as\b', r'\bis when\b',
+            r'\binvolves\b', r'\binclude[s]?\b', r'\bfor example\b', r'\bsuch as\b'
+        ]
+        definitions_count = sum(len(re.findall(pattern, content.lower())) for pattern in definition_patterns)
         
-        clarity_score = max(0, min(100, (flesch_score + 100) / 2 - complexity_penalty - jargon_penalty))
+        jargon_penalty = max(0, (jargon_count - definitions_count) * 1.5)
+        
+        passive_patterns = [r'\bis\s+\w+ed\b', r'\bwas\s+\w+ed\b', r'\bwere\s+\w+ed\b', r'\bbeen\s+\w+ed\b']
+        passive_count = sum(len(re.findall(pattern, content.lower())) for pattern in passive_patterns)
+        passive_penalty = min(15, passive_count * 2)
+        
+        unclear_pronouns = ['this', 'that', 'these', 'those', 'it']
+        pronoun_count = sum(content.lower().count(pronoun) for pronoun in unclear_pronouns)
+        pronoun_penalty = min(10, pronoun_count * 0.5)
+        
+        clarity_score = max(0, min(100, (flesch_score + 100) / 2 - complexity_penalty - jargon_penalty - passive_penalty - pronoun_penalty))
         
         return clarity_score
     

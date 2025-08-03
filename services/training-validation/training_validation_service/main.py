@@ -333,7 +333,13 @@ async def execute_validation(session_id: str, request: ValidationRequest = Valid
             uuid.UUID(session_id)
         )
         
-        validation_results = await run_validation_engines(session, documents)
+        session_dict = dict(session)
+        documents_list = [dict(doc) for doc in documents]
+        
+        logger.info(f"Session dict keys: {list(session_dict.keys())}")
+        logger.info(f"Documents count: {len(documents_list)}")
+        
+        validation_results = await run_validation_engines(session_dict, documents_list)
         
         result_id = await conn.fetchval(
             """INSERT INTO validation_results 
@@ -348,9 +354,11 @@ async def execute_validation(session_id: str, request: ValidationRequest = Valid
             "system"
         )
         
-        report_content = await generate_validation_report(session, validation_results)
+        logger.info("About to generate validation report")
+        report_content = await generate_validation_report(session_dict, validation_results)
         
-        asset_id = await create_validation_asset(conn, session, report_content, result_id)
+        logger.info("About to create validation asset")
+        asset_id = await create_validation_asset(conn, session_dict, report_content, result_id)
         
         airlock_response = None
         if request.submit_for_review and airlock_client:
@@ -385,7 +393,9 @@ async def execute_validation(session_id: str, request: ValidationRequest = Valid
         return response
         
     except Exception as e:
+        import traceback
         logger.error(f"Error executing validation: {e}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/validation-sessions/{session_id}/results")

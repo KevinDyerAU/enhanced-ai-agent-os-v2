@@ -17,13 +17,13 @@ async def run_validation_engines(session: Dict[str, Any], documents: List[Dict[s
     
     training_unit = {
         "unit_code": session["unit_code"],
-        "title": session["unit_title"],
-        "elements": json.loads(session["elements"]) if session["elements"] else [],
-        "performance_criteria": json.loads(session["performance_criteria"]) if session["performance_criteria"] else [],
-        "knowledge_evidence": json.loads(session["knowledge_evidence"]) if session["knowledge_evidence"] else [],
-        "performance_evidence": json.loads(session["performance_evidence"]) if session["performance_evidence"] else [],
-        "foundation_skills": json.loads(session["foundation_skills"]) if session["foundation_skills"] else [],
-        "assessment_conditions": json.loads(session["assessment_conditions"]) if session["assessment_conditions"] else []
+        "title": session.get("unit_title", session.get("title", "Unknown")),
+        "elements": json.loads(session["elements"]) if isinstance(session["elements"], str) else session.get("elements", []),
+        "performance_criteria": json.loads(session["performance_criteria"]) if isinstance(session["performance_criteria"], str) else session.get("performance_criteria", []),
+        "knowledge_evidence": json.loads(session["knowledge_evidence"]) if isinstance(session["knowledge_evidence"], str) else session.get("knowledge_evidence", []),
+        "performance_evidence": json.loads(session["performance_evidence"]) if isinstance(session["performance_evidence"], str) else session.get("performance_evidence", []),
+        "foundation_skills": json.loads(session["foundation_skills"]) if isinstance(session["foundation_skills"], str) else session.get("foundation_skills", []),
+        "assessment_conditions": json.loads(session["assessment_conditions"]) if isinstance(session["assessment_conditions"], str) else session.get("assessment_conditions", [])
     }
     
     document_list = []
@@ -95,10 +95,14 @@ async def run_validation_engines(session: Dict[str, Any], documents: List[Dict[s
 async def generate_validation_report(session: Dict[str, Any], validation_results: Dict[str, Any]) -> str:
     """Generate a comprehensive validation report in Markdown format"""
     
+    unit_title = session.get('unit_title', session.get('title', 'Unknown Unit'))
+    session_name = session.get('name', 'Unnamed Session')
+    unit_code = session.get('unit_code', 'Unknown Code')
+    
     report = f"""# Training Validation Report
 
-- **Session Name**: {session['name']}
-- **Training Unit**: {session['unit_code']} - {session['unit_title']}
+- **Session Name**: {session_name}
+- **Training Unit**: {unit_code} - {unit_title}
 - **Validation Date**: {session.get('started_at', 'N/A')}
 - **Strictness Level**: {validation_results.get('strictness_level', 'normal')}
 
@@ -113,7 +117,21 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
     all_gaps = []
     for validation_type, result in validation_results["findings"].items():
         if "gaps" in result:
-            all_gaps.extend(result["gaps"])
+            gaps = result["gaps"]
+            if isinstance(gaps, list):
+                for gap in gaps:
+                    if isinstance(gap, dict):
+                        all_gaps.append(gap)
+                    elif hasattr(gap, 'to_dict'):
+                        all_gaps.append(gap.to_dict())
+                    else:
+                        all_gaps.append({
+                            "gap_type": "Unknown",
+                            "description": str(gap),
+                            "recommendation": "Review this finding",
+                            "confidence_score": 0.5,
+                            "severity": "medium"
+                        })
     
     if all_gaps:
         report += f"## Gap Analysis Summary\n"
@@ -153,10 +171,23 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
             if "gaps" in result and result["gaps"]:
                 report += f"- **Identified Gaps** ({len(result['gaps'])}):\n"
                 for gap in result["gaps"]:
-                    severity_icon = "🔴" if gap.get("severity") == "high" else "🟡" if gap.get("severity") == "medium" else "🟢"
-                    report += f"  {severity_icon} **{gap.get('gap_type', 'Unknown')}** (Confidence: {gap.get('confidence_score', 0):.0%})\n"
-                    report += f"    - *Issue*: {gap.get('description', 'No description')}\n"
-                    report += f"    - *Action*: {gap.get('recommendation', 'No recommendation')}\n"
+                    if isinstance(gap, dict):
+                        gap_dict = gap
+                    elif hasattr(gap, 'to_dict'):
+                        gap_dict = gap.to_dict()
+                    else:
+                        gap_dict = {
+                            "gap_type": "Unknown",
+                            "description": str(gap),
+                            "recommendation": "Review this finding",
+                            "confidence_score": 0.5,
+                            "severity": "medium"
+                        }
+                    
+                    severity_icon = "🔴" if gap_dict.get("severity") == "high" else "🟡" if gap_dict.get("severity") == "medium" else "🟢"
+                    report += f"  {severity_icon} **{gap_dict.get('gap_type', 'Unknown')}** (Confidence: {gap_dict.get('confidence_score', 0):.0%})\n"
+                    report += f"    - *Issue*: {gap_dict.get('description', 'No description')}\n"
+                    report += f"    - *Action*: {gap_dict.get('recommendation', 'No recommendation')}\n"
             
             if "recommendations" in result and result["recommendations"]:
                 report += f"- **Recommendations**:\n"
@@ -171,10 +202,25 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
             report += f"- {rec}\n"
         report += "\n"
     
-    high_priority_gaps = [gap for result in validation_results["findings"].values() 
-                         if "gaps" in result 
-                         for gap in result["gaps"] 
-                         if gap.get("severity") == "high"]
+    high_priority_gaps = []
+    for result in validation_results["findings"].values():
+        if "gaps" in result:
+            for gap in result["gaps"]:
+                if isinstance(gap, dict):
+                    gap_dict = gap
+                elif hasattr(gap, 'to_dict'):
+                    gap_dict = gap.to_dict()
+                else:
+                    gap_dict = {
+                        "gap_type": "Unknown",
+                        "description": str(gap),
+                        "recommendation": "Review this finding",
+                        "confidence_score": 0.5,
+                        "severity": "medium"
+                    }
+                
+                if gap_dict.get("severity") == "high":
+                    high_priority_gaps.append(gap_dict)
     
     if high_priority_gaps:
         report += "## Priority Action Items\n"
@@ -190,19 +236,23 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
 async def create_validation_asset(conn, session: Dict[str, Any], report_content: str, result_id: str) -> str:
     """Create a creative asset for the validation report to go through airlock review"""
     
+    unit_code = session.get('unit_code', 'Unknown Code')
+    session_name = session.get('name', 'Unnamed Session')
+    session_id = session.get('id', 'unknown')
+    
     asset_id = await conn.fetchval(
         """INSERT INTO creative_assets 
            (title, description, type, asset_type, content_url, metadata, status, created_by_agent_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
-        f"Training Validation Report - {session['unit_code']}",
-        f"Comprehensive validation report for {session['name']} ({session['unit_code']})",
+        f"Training Validation Report - {unit_code}",
+        f"Comprehensive validation report for {session_name} ({unit_code})",
         "validation_report",
         "validation_report",
         f"/validation/reports/{result_id}",
         json.dumps({
-            "session_id": str(session["id"]),
+            "session_id": str(session_id),
             "result_id": str(result_id),
-            "unit_code": session["unit_code"],
+            "unit_code": unit_code,
             "report_content": report_content,
             "validation_type": "comprehensive",
             "generated_by": "training_validation_service"
