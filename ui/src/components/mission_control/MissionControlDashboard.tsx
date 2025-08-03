@@ -3,14 +3,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, Brain, Zap, Users, Plus } from 'lucide-react';
+import { Activity, Brain, Zap, Users, Plus, ArrowLeft } from 'lucide-react';
 import { Task, Agent, apiService } from '../../services/api';
+import MissionBriefingWorkflow from './MissionBriefingWorkflow';
+import AgentActivityStream from '../monitoring/AgentActivityStream';
 
 const MissionControlDashboard: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showMissionBriefing, setShowMissionBriefing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -77,6 +80,30 @@ const MissionControlDashboard: React.FC = () => {
   const completedTasks = tasks.filter(task => task.status === 'completed');
   const activeAgents = agents.filter(agent => agent.status === 'active');
 
+  const handleMissionComplete = () => {
+    setShowMissionBriefing(false);
+    loadData();
+  };
+
+  if (showMissionBriefing) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <Button 
+            variant="outline" 
+            onClick={() => setShowMissionBriefing(false)}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Dashboard
+          </Button>
+          <h1 className="text-3xl font-bold text-gray-900">New Mission Briefing</h1>
+        </div>
+        <MissionBriefingWorkflow onComplete={handleMissionComplete} />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -84,10 +111,23 @@ const MissionControlDashboard: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Mission Control</h1>
           <p className="text-gray-600">AI Agent Operating System v2.0</p>
         </div>
-        <Button className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          New Mission
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            className="flex items-center gap-2"
+            onClick={() => setShowMissionBriefing(true)}
+          >
+            <Plus className="h-4 w-4" />
+            New Mission
+          </Button>
+          <Button 
+            variant="outline"
+            className="flex items-center gap-2"
+            onClick={() => window.open('/airlock', '_blank')}
+          >
+            <Activity className="h-4 w-4" />
+            Airlock Review
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -227,19 +267,7 @@ const MissionControlDashboard: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>System Activity</CardTitle>
-              <CardDescription>
-                Real-time activity feed from all agents
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8 text-gray-500">
-                Activity stream will be implemented in Phase 4
-              </div>
-            </CardContent>
-          </Card>
+          <AgentActivityStream />
         </TabsContent>
       </Tabs>
     </div>

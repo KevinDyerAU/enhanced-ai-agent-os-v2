@@ -107,13 +107,13 @@ class IdeationEngine:
         self.api_key = openrouter_api_key
         self.base_url = "https://openrouter.ai/api/v1"
         
-    async def generate_content_ideas(self, request: IdeaGenerationRequest, market_data: Dict[str, Any]) -> List[ContentIdea]:
+    async def generate_content_ideas(self, request: IdeaGenerationRequest, market_data: Dict[str, Any], past_tasks_context: List[dict] = None) -> List[ContentIdea]:
         """Generate content ideas using OpenRouter LLM"""
         try:
             if not self.api_key:
                 return self._generate_mock_ideas(request)
                 
-            prompt = self._build_ideation_prompt(request, market_data)
+            prompt = self._build_ideation_prompt(request, market_data, past_tasks_context)
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -145,8 +145,15 @@ class IdeationEngine:
             logger.error(f"LLM idea generation failed: {e}")
             return self._generate_mock_ideas(request)
     
-    def _build_ideation_prompt(self, request: IdeaGenerationRequest, market_data: Dict[str, Any]) -> str:
+    def _build_ideation_prompt(self, request: IdeaGenerationRequest, market_data: Dict[str, Any], past_tasks_context: List[dict] = None) -> str:
         """Build the prompt for LLM idea generation"""
+        context_section = ""
+        if past_tasks_context:
+            context_section = "\n\nRelevant Past Tasks for Context:\n"
+            for i, task in enumerate(past_tasks_context[:3], 1):
+                context_section += f"{i}. {task.get('content', '')[:200]}...\n"
+            context_section += "\nUse these past experiences to inform your ideas but create new, innovative concepts.\n"
+        
         return f"""
         Generate {request.count} creative content ideas for the following requirements:
         
@@ -160,6 +167,7 @@ class IdeationEngine:
         - Trending Keywords: {', '.join(market_data.get('trending_keywords', []))}
         - Audience Interests: {', '.join(market_data.get('audience_interests', []))}
         - Content Gaps: {', '.join(market_data.get('competitive_landscape', {}).get('content_gaps', []))}
+        {context_section}
         
         For each idea, provide:
         1. A compelling title
@@ -285,7 +293,11 @@ async def generate_ideas(request: IdeaGenerationRequest):
         
         market_data = await market_engine.analyze_market_trends(request.topic, request.industry or "technology")
         
-        ideas = await ideation_engine.generate_content_ideas(request, market_data)
+        relevant_tasks = await search_relevant_tasks(
+            f"{request.topic} {request.target_audience} {request.content_type}"
+        )
+        
+        ideas = await ideation_engine.generate_content_ideas(request, market_data, relevant_tasks)
         
         response = IdeaGenerationResponse(
             ideas=ideas,
@@ -344,3 +356,31 @@ async def startup_event():
         
     except Exception as e:
         logger.error(f"Failed to register agent: {e}")
+
+async def search_relevant_tasks(query: str, top_k: int = 3):
+    """Search for relevant past tasks using vector similarity"""
+    try:
+        data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
+        
+        payload = {
+            "query": query,
+            "top_k": top_k,
+            "filter_metadata": {"type": "completed_task"}
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{data_architecture_url}/knowledge/search",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("results", [])
+            else:
+                logger.error(f"Failed to search tasks: {response.status_code}")
+                return []
+                    
+    except Exception as e:
+        logger.error(f"Error searching relevant tasks: {str(e)}")
+        return []

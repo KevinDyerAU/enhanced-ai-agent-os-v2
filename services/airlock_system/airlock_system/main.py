@@ -200,6 +200,8 @@ async def approve_asset(asset_id: str, request: ApprovalRequest):
             }
         )
         
+        await publish_asset_event("asset.approved", asset_id, "approved")
+        
         logger.info(f"Asset {asset_id} approved by {request.reviewer_id}")
         
         return ReviewResponse(
@@ -256,6 +258,8 @@ async def reject_asset(asset_id: str, request: RejectionRequest):
                 "metadata": request.metadata
             }
         )
+        
+        await publish_asset_event("asset.rejected", asset_id, "rejected", request.reason)
         
         logger.info(f"Asset {asset_id} rejected by {request.reviewer_id}")
         
@@ -342,6 +346,44 @@ async def get_asset(asset_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get asset: {str(e)}")
     finally:
         await conn.close()
+
+async def publish_asset_event(event_type: str, asset_id: str, status: str, reason: str = None):
+    """Publish asset approval/rejection event to Kafka"""
+    try:
+        data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
+        
+        event_data = {
+            "asset_id": asset_id,
+            "status": status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        if reason:
+            event_data["reason"] = reason
+        
+        payload = {
+            "topic": event_type,
+            "event_type": event_type.replace(".", "_"),
+            "data": event_data,
+            "metadata": {
+                "source": "airlock_system",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{data_architecture_url}/events/publish",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            if response.status_code == 200:
+                logger.info(f"Successfully published {event_type} event for asset {asset_id}")
+            else:
+                logger.error(f"Failed to publish {event_type} event: {response.status_code}")
+                    
+    except Exception as e:
+        logger.error(f"Error publishing asset event: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

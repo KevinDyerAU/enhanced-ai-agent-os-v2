@@ -5,9 +5,9 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: aos_db
-      POSTGRES_USER: aos_user
-      POSTGRES_PASSWORD: aos_password
+      POSTGRES_DB: ${POSTGRES_DB:-aos_db}
+      POSTGRES_USER: ${POSTGRES_USER:-aos_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aos_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./shared/database:/docker-entrypoint-initdb.d
@@ -20,12 +20,14 @@ services:
   orchestration_agent:
     build: ./services/core_services/orchestration_agent
     environment:
-      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DATA_ARCHITECTURE_URL=http://data_architecture:8020
     ports:
       - "8000:8000"
     depends_on:
       - postgres
+      - data_architecture
     networks:
       - aos_network
     volumes:
@@ -35,12 +37,14 @@ services:
   ideation_agent:
     build: ./services/creator_layer/ideation_agent
     environment:
-      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DATA_ARCHITECTURE_URL=http://data_architecture:8020
     ports:
       - "8001:8001"
     depends_on:
       - postgres
+      - data_architecture
     networks:
       - aos_network
     volumes:
@@ -49,7 +53,7 @@ services:
   design_agent:
     build: ./services/creator_layer/design_agent
     environment:
-      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - CANVA_API_KEY=${CANVA_API_KEY}
     ports:
       - "8002:8002"
@@ -63,7 +67,7 @@ services:
   video_agent:
     build: ./services/creator_layer/video_agent
     environment:
-      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - DESCRIPT_API_KEY=${DESCRIPT_API_KEY}
     ports:
       - "8003:8003"
@@ -77,7 +81,7 @@ services:
   social_media_manager:
     build: ./services/creator_layer/social_media_manager
     environment:
-      - DATABASE_URL=postgresql://aos_user:aos_password@postgres:5432/aos_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
     ports:
@@ -88,6 +92,99 @@ services:
       - aos_network
     volumes:
       - ./services/creator_layer/social_media_manager:/app
+
+  # Enterprise Layer Services
+  compliance_engine:
+    build: ./services/enterprise_layer/compliance_engine
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - COMPLIANCE_FRAMEWORK=${COMPLIANCE_FRAMEWORK:-enterprise}
+    ports:
+      - "8005:8005"
+    depends_on:
+      - postgres
+      - orchestration_agent
+    networks:
+      - aos_network
+    volumes:
+      - ./services/enterprise_layer/compliance_engine:/app
+
+  audit_service:
+    build: ./services/enterprise_layer/audit_service
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+    ports:
+      - "8006:8006"
+    depends_on:
+      - postgres
+    networks:
+      - aos_network
+    volumes:
+      - ./services/enterprise_layer/audit_service:/app
+
+  airlock_system:
+    build: ./services/airlock_system
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - AUDIT_SERVICE_URL=http://audit_service:8006
+      - DATA_ARCHITECTURE_URL=http://data_architecture:8020
+    ports:
+      - "8007:8007"
+    depends_on:
+      - postgres
+      - audit_service
+      - data_architecture
+    networks:
+      - aos_network
+    volumes:
+      - ./services/airlock_system:/app
+
+  # Data Architecture Service
+  data_architecture:
+    build: ./services/data_architecture
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east1-gcp}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-task-memory}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "8020:8020"
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - aos_network
+    volumes:
+      - ./services/data_architecture:/app
+
+  # Message Queue - Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - aos_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    networks:
+      - aos_network
 
   # Frontend UI
   ui:
@@ -117,7 +214,7 @@ services:
     ports:
       - "3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - grafana_data:/var/lib/grafana
     networks:

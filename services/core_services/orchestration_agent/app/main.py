@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 import logging
 import json
+import aiohttp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -229,3 +230,143 @@ async def get_agents():
         raise HTTPException(status_code=500, detail=f"Failed to get agents: {str(e)}")
     finally:
         await conn.close()
+
+class TaskCompletion(BaseModel):
+    result: str
+    metadata: Optional[Dict[str, Any]] = {}
+
+@app.post("/api/v1/tasks/{task_id}/complete")
+async def complete_task(task_id: str, completion: TaskCompletion):
+    """Mark a task as completed with results"""
+    conn = await get_db_connection()
+    try:
+        await conn.execute("""
+            UPDATE tasks 
+            SET status = 'completed', 
+                output_data = $1, 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+        """, json.dumps({"result": completion.result, **completion.metadata}), task_id)
+        
+        task_row = await conn.fetchrow("""
+            SELECT id, title, description, status, output_data, created_at, updated_at
+            FROM tasks WHERE id = $1
+        """, task_id)
+        
+        if not task_row:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        await store_task_memory(task_row)
+        
+        await publish_task_completion_event(task_row)
+        
+        return {
+            "success": True,
+            "task": dict(task_row),
+            "message": "Task completed successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error completing task: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await conn.close()
+
+async def store_task_memory(task_row):
+    """Store completed task in vector database for future reference"""
+    try:
+        data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
+        
+        output_data = json.loads(task_row['output_data']) if isinstance(task_row['output_data'], str) else (task_row['output_data'] or {})
+        task_summary = f"Task: {task_row['title']}\nDescription: {task_row['description']}\nResult: {output_data.get('result', 'No result')}"
+        
+        payload = {
+            "content": task_summary,
+            "metadata": {
+                "task_id": task_row['id'],
+                "title": task_row['title'],
+                "status": task_row['status'],
+                "created_at": task_row['created_at'].isoformat() if task_row['created_at'] else None,
+                "completed_at": task_row['updated_at'].isoformat() if task_row['updated_at'] else None,
+                "type": "completed_task"
+            },
+            "document_id": f"task_{task_row['id']}"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{data_architecture_url}/knowledge/store",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully stored task {task_row['id']} in vector database")
+                else:
+                    logger.error(f"Failed to store task in vector database: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"Error storing task memory: {str(e)}")
+
+async def publish_task_completion_event(task_row):
+    """Publish task completion event to Kafka"""
+    try:
+        data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
+        
+        payload = {
+            "topic": "task.completed",
+            "event_type": "task_completed",
+            "data": {
+                "task_id": task_row['id'],
+                "title": task_row['title'],
+                "status": task_row['status'],
+                "completed_at": task_row['updated_at'].isoformat() if task_row['updated_at'] else None
+            },
+            "metadata": {
+                "source": "orchestration_agent",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{data_architecture_url}/events/publish",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully published task completion event for {task_row['id']}")
+                else:
+                    logger.error(f"Failed to publish task completion event: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"Error publishing task completion event: {str(e)}")
+
+async def search_relevant_tasks(query: str, top_k: int = 3):
+    """Search for relevant past tasks using vector similarity"""
+    try:
+        data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
+        
+        payload = {
+            "query": query,
+            "top_k": top_k,
+            "filter_metadata": {"type": "completed_task"}
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{data_architecture_url}/knowledge/search",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return result.get("results", [])
+                else:
+                    logger.error(f"Failed to search tasks: {response.status}")
+                    return []
+                    
+    except Exception as e:
+        logger.error(f"Error searching relevant tasks: {str(e)}")
+        return []
