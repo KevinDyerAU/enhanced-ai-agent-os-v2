@@ -188,8 +188,8 @@ async def create_validation_session(session: ValidationSessionCreate):
             description=created_session["description"],
             training_unit_id=str(created_session["training_unit_id"]),
             status=created_session["status"],
-            configuration=created_session["configuration"] or {},
-            progress=created_session["progress"] or {},
+            configuration=json.loads(created_session["configuration"]) if created_session["configuration"] else {},
+            progress=json.loads(created_session["progress"]) if created_session["progress"] else {},
             created_by=created_session["created_by"],
             created_at=created_session["created_at"],
             updated_at=created_session["updated_at"]
