@@ -103,7 +103,6 @@ class AirlockSubmissionRequest(BaseModel):
     priority: Optional[str] = "normal"
 
 class QuestionGenerationRequest(BaseModel):
-    session_id: str
     question_count: Optional[int] = 10
     question_types: Optional[List[str]] = None
 
@@ -112,7 +111,6 @@ class QuestionSearchRequest(BaseModel):
     filters: Optional[Dict[str, Any]] = {}
 
 class ReportGenerationRequest(BaseModel):
-    session_id: str
     format_type: Optional[str] = "markdown"
     include_questions: Optional[bool] = True
 
@@ -730,7 +728,7 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
         
         conn = await get_db_connection()
         
-        session = await conn.fetchrow(
+        session_raw = await conn.fetchrow(
             """SELECT vs.*, tu.unit_code, tu.title as unit_title, tu.elements, tu.performance_criteria,
                       tu.knowledge_evidence, tu.performance_evidence, tu.foundation_skills, tu.assessment_conditions
                FROM validation_sessions vs
@@ -739,9 +737,14 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
             uuid.UUID(session_id)
         )
         
-        if not session:
+        if not session_raw:
             await conn.close()
             raise HTTPException(status_code=404, detail="Validation session not found")
+        
+        session = dict(session_raw)
+        for key, value in session.items():
+            if isinstance(value, uuid.UUID):
+                session[key] = str(value)
         
         validation_results_raw = await conn.fetch(
             """SELECT * FROM validation_results 
@@ -754,7 +757,7 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
             await conn.close()
             raise HTTPException(status_code=404, detail="No validation results found")
         
-        validation_result = validation_results_raw[0]
+        validation_result = dict(validation_results_raw[0])
         validation_results = {
             "overall_score": float(validation_result["score"]) if validation_result["score"] else 0,
             "findings": json.loads(validation_result["findings"]) if validation_result["findings"] else {},
@@ -766,7 +769,7 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
             questions = await question_manager.get_questions_by_session(session_id)
         
         report_result = await report_generator.generate_comprehensive_report(
-            validation_results, dict(session), dict(session), questions, request.format_type
+            validation_results, session, session, questions, request.format_type
         )
         
         if "error" in report_result:
@@ -793,7 +796,7 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
             "report_id": str(report_id),
             "format": request.format_type,
             "content": report_result["content"],
-            "metadata": report_result["metadata"]
+            "metadata": report_result.get("metadata", {})
         }
         
     except Exception as e:
