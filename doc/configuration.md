@@ -149,6 +149,55 @@ healthcheck:
 
 ## Database Configuration
 
+### PostgreSQL Connection Details
+
+**Default Configuration:**
+- **Host**: `postgres` (container name) / `localhost` (from host)
+- **Port**: `5432`
+- **Database**: `ai_agent_os`
+- **Username**: `postgres`
+- **Password**: Set via `POSTGRES_PASSWORD` environment variable
+
+**Environment Variables:**
+```env
+POSTGRES_DB=ai_agent_os
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+```
+
+**Connection Strings:**
+```bash
+# From host machine
+postgresql://postgres:your_password@localhost:5432/ai_agent_os
+
+# From Docker containers
+postgresql://postgres:your_password@postgres:5432/ai_agent_os
+```
+
+**Docker Service Configuration:**
+```yaml
+postgres:
+  image: postgres:13
+  container_name: ai_agent_os_postgres
+  environment:
+    POSTGRES_DB: ${POSTGRES_DB}
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+  ports:
+    - "5432:5432"
+  volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./database/init:/docker-entrypoint-initdb.d
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+```
+
 ### PostgreSQL Settings
 
 #### Performance Tuning
@@ -280,8 +329,52 @@ scrape_configs:
         - 'social_media_manager:8004'
 ```
 
-### Grafana Configuration
+### Grafana Configuration Details
 
+**Access Information:**
+- **URL**: http://localhost:3001
+- **Username**: `admin`
+- **Password**: Set via `GRAFANA_ADMIN_PASSWORD` environment variable
+- **Host**: `grafana` (container name) / `localhost` (from host)
+- **Port**: `3001` (mapped from container port 3000)
+
+**Environment Variables:**
+```env
+GRAFANA_ADMIN_PASSWORD=your_grafana_password
+GF_SECURITY_ADMIN_USER=admin
+GF_USERS_ALLOW_SIGN_UP=false
+GF_SECURITY_ALLOW_EMBEDDING=true
+GF_SERVER_ROOT_URL=http://localhost:3001
+```
+
+**Docker Service Configuration:**
+```yaml
+grafana:
+  image: grafana/grafana:latest
+  container_name: ai_agent_os_grafana
+  ports:
+    - "3001:3000"
+  environment:
+    - GF_SECURITY_ADMIN_USER=admin
+    - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    - GF_USERS_ALLOW_SIGN_UP=false
+    - GF_SECURITY_ALLOW_EMBEDDING=true
+    - GF_SERVER_ROOT_URL=http://localhost:3001
+    - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+  volumes:
+    - grafana_data:/var/lib/grafana
+    - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+  healthcheck:
+    test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+  depends_on:
+    - prometheus
+```
+
+**Data Source Configuration:**
 ```yaml
 # grafana/provisioning/datasources/prometheus.yml
 apiVersion: 1
@@ -291,6 +384,53 @@ datasources:
     url: http://prometheus:9090
     access: proxy
     isDefault: true
+    basicAuth: false
+    editable: true
+  - name: PostgreSQL
+    type: postgres
+    url: postgres:5432
+    database: ai_agent_os
+    user: postgres
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 0
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+```
+
+**Dashboard Provisioning:**
+```yaml
+# grafana/provisioning/dashboards/dashboard.yml
+apiVersion: 1
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+```
+
+**User Management:**
+```bash
+# Add new user via API
+curl -X POST http://admin:${GRAFANA_ADMIN_PASSWORD}@localhost:3001/api/admin/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "New User",
+    "email": "user@example.com",
+    "login": "newuser",
+    "password": "userpassword",
+    "orgId": 1
+  }'
+
+# Reset admin password
+docker-compose exec grafana grafana-cli admin reset-admin-password newpassword
 ```
 
 ### Alerting Rules

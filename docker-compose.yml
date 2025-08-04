@@ -20,8 +20,13 @@ services:
   orchestration_agent:
     build: ./services/core_services/orchestration_agent
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
       - DATA_ARCHITECTURE_URL=http://data_architecture:8020
     ports:
       - "8000:8000"
@@ -37,8 +42,10 @@ services:
   ideation_agent:
     build: ./services/creator_layer/ideation_agent
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATA_ARCHITECTURE_URL=http://data_architecture:8020
     ports:
       - "8001:8001"
@@ -53,7 +60,7 @@ services:
   design_agent:
     build: ./services/creator_layer/design_agent
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - CANVA_API_KEY=${CANVA_API_KEY}
     ports:
       - "8002:8002"
@@ -67,7 +74,7 @@ services:
   video_agent:
     build: ./services/creator_layer/video_agent
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - DESCRIPT_API_KEY=${DESCRIPT_API_KEY}
     ports:
       - "8003:8003"
@@ -81,7 +88,7 @@ services:
   social_media_manager:
     build: ./services/creator_layer/social_media_manager
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
     ports:
@@ -143,12 +150,14 @@ services:
   data_architecture:
     build: ./services/data_architecture
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
+      - DATABASE_URL=${DATABASE_URL}
       - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east1-gcp}
-      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-task-memory}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     ports:
       - "8020:8020"
     depends_on:
