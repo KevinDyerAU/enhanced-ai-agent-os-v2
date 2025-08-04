@@ -18,6 +18,8 @@ from question_generation.question_manager import QuestionManager
 from reporting.report_generator import ReportGenerator
 from schemas.document_schema import DocumentProcessingResult, DocumentMetadata, ProcessedElement
 from services.document_service import DocumentService, document_service
+from services.validation_service import ValidationService, validation_service
+from schemas.unit_schema import Unit
 import httpx
 
 logging.basicConfig(level=logging.INFO)
@@ -40,12 +42,13 @@ question_generator: Optional[SMARTQuestionGenerator] = None
 question_manager: Optional[QuestionManager] = None
 report_generator: Optional[ReportGenerator] = None
 doc_service: Optional[DocumentService] = None
+val_service: Optional[ValidationService] = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize integration clients on startup"""
     global web_intelligence_client, document_processing_client, airlock_client
-    global question_generator, question_manager, report_generator, doc_service
+    global question_generator, question_manager, report_generator, doc_service, val_service
     
     web_intelligence_url = os.getenv("WEB_INTELLIGENCE_URL", "http://web_intelligence_service:8032")
     document_engine_url = os.getenv("DOCUMENT_ENGINE_URL", "http://document_engine:8031")
@@ -58,6 +61,7 @@ async def startup_event():
     question_manager = QuestionManager()
     report_generator = ReportGenerator()
     doc_service = document_service
+    val_service = validation_service
     
     logger.info("Training Validation Service initialized with Phase 3 features and document processing")
 
@@ -1045,6 +1049,32 @@ async def get_system_usage_analytics():
     except Exception as e:
         logger.error(f"Error getting system usage analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/validation/validate")
+async def run_full_validation(
+    unit_data: Unit,
+    document_data: DocumentProcessingResult
+):
+    """
+    Validates a processed document against the scraped data of a training unit.
+    Runs all validation checks and returns a comprehensive report.
+    """
+    try:
+        if not val_service:
+            raise HTTPException(status_code=500, detail="Validation service not initialized")
+            
+        results = val_service.validate_document(
+            unit_data=unit_data,
+            document_elements=document_data.elements
+        )
+        
+        logger.info(f"Validation completed for unit {unit_data.unit_code}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error during validation: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred during validation: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
