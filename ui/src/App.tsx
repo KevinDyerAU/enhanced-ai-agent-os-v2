@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import MissionControlDashboard from './components/mission_control/MissionControlDashboard'
 import AirlockPage from './pages/AirlockPage'
+import TrainingValidationPage from './pages/TrainingValidationPage'
 import './App.css'
 
 function App() {
@@ -10,6 +11,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MissionControlDashboard />} />
           <Route path="/airlock" element={<AirlockPage />} />
+          <Route path="/training" element={<TrainingValidationPage />} />
         </Routes>
       </div>
     </Router>
