@@ -11,6 +11,7 @@ import json
 import tempfile
 from integrations.web_intelligence_client import WebIntelligenceClient
 from integrations.document_processing_client import DocumentProcessingClient
+from integrations.data_architecture_client import DataArchitectureClient
 from validation_coordinator import run_validation_engines, generate_validation_report, create_validation_asset
 from airlock_integration import AirlockIntegration
 from question_generation.smart_question_generator import SMARTQuestionGenerator
@@ -19,6 +20,7 @@ from reporting.report_generator import ReportGenerator
 from schemas.document_schema import DocumentProcessingResult, DocumentMetadata, ProcessedElement
 from services.document_service import DocumentService, document_service
 from services.validation_service import ValidationService, validation_service
+from services.llm_service import llm_service
 from schemas.unit_schema import Unit
 import httpx
 
@@ -37,6 +39,7 @@ app.add_middleware(
 
 web_intelligence_client: Optional[WebIntelligenceClient] = None
 document_processing_client: Optional[DocumentProcessingClient] = None
+data_architecture_client: Optional[DataArchitectureClient] = None
 airlock_client: Optional[AirlockIntegration] = None
 question_generator: Optional[SMARTQuestionGenerator] = None
 question_manager: Optional[QuestionManager] = None
@@ -47,23 +50,25 @@ val_service: Optional[ValidationService] = None
 @app.on_event("startup")
 async def startup_event():
     """Initialize integration clients on startup"""
-    global web_intelligence_client, document_processing_client, airlock_client
+    global web_intelligence_client, document_processing_client, data_architecture_client, airlock_client
     global question_generator, question_manager, report_generator, doc_service, val_service
     
     web_intelligence_url = os.getenv("WEB_INTELLIGENCE_URL", "http://web_intelligence_service:8032")
     document_engine_url = os.getenv("DOCUMENT_ENGINE_URL", "http://document_engine:8031")
+    data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
     
     web_intelligence_client = WebIntelligenceClient(web_intelligence_url)
     document_processing_client = DocumentProcessingClient(document_engine_url)
+    data_architecture_client = DataArchitectureClient(data_architecture_url)
     airlock_client = AirlockIntegration()
     
     question_generator = SMARTQuestionGenerator()
     question_manager = QuestionManager()
     report_generator = ReportGenerator()
     doc_service = document_service
-    val_service = validation_service
+    val_service = ValidationService(llm_service=llm_service, data_architecture_client=data_architecture_client)
     
-    logger.info("Training Validation Service initialized with Phase 3 features and document processing")
+    logger.info("Training Validation Service initialized with Phase 3 features, document processing, and vector store context")
 
 async def get_db_connection():
     database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/aos_db")
@@ -1063,7 +1068,7 @@ async def run_full_validation(
         if not val_service:
             raise HTTPException(status_code=500, detail="Validation service not initialized")
             
-        results = val_service.validate_document(
+        results = await val_service.validate_document_fully(
             unit_data=unit_data,
             document_elements=document_data.elements
         )
