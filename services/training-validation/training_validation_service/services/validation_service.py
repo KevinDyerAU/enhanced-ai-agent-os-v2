@@ -1,99 +1,67 @@
+from typing import List, Dict, Any
 from schemas.unit_schema import Unit
 from schemas.document_schema import ProcessedElement
-from typing import List, Dict, Any
+from services.llm_service import LLMService, llm_service
+from prompts.validation_prompts import (
+    ASSESSMENT_CONDITIONS_PROMPT,
+    PERFORMANCE_EVIDENCE_PROMPT,
+    KNOWLEDGE_EVIDENCE_PROMPT,
+    ELEMENTS_PERFORMANCE_CRITERIA_PROMPT,
+)
 
 class ValidationService:
     """
-    Orchestrates the validation of training documents against official unit requirements.
+    Orchestrates the validation of training documents using LLM-driven analysis
+    with prompts from the centralized prompt store.
     """
+    def __init__(self, llm_service: LLMService):
+        self.llm = llm_service
+
+    def _prepare_context(self, document_elements: List[ProcessedElement], max_tokens: int = 120000) -> str:
+        """
+        Combines document content into a single string and truncates if necessary
+        to fit within the LLM's context window.
+        """
+        full_doc_text = " ".join([elem.text for elem in document_elements])
+        if len(full_doc_text.split()) > max_tokens * 0.75: # A rough token estimation
+            return " ".join(full_doc_text.split()[:int(max_tokens * 0.75)])
+        return full_doc_text
+
     def validate_document(self, unit_data: Unit, document_elements: List[ProcessedElement]) -> Dict[str, Any]:
         """
-        Runs all validation checks and returns a comprehensive report.
+        Runs all validation checks using the LLM and returns a comprehensive report.
         """
-        validation_results = {
-            "summary": {},
-            "assessment_conditions": self._validate_assessment_conditions(unit_data, document_elements),
-            "elements_and_performance_criteria": self._validate_epc(unit_data, document_elements),
-            "performance_evidence": self._validate_performance_evidence(unit_data, document_elements),
-            "knowledge_evidence": self._validate_knowledge_evidence(unit_data, document_elements),
-        }
-        
-        return validation_results
+        doc_context = self._prepare_context(document_elements)
 
-    def _validate_assessment_conditions(self, unit_data: Unit, doc_elements: List[ProcessedElement]) -> Dict[str, Any]:
-        gaps = []
-        full_doc_text = " ".join([elem.text for elem in doc_elements]).lower()
+        pe_list_str = "\n".join([f"- {pe}" for pe in unit_data.performance_evidence])
+        pe_prompt = PERFORMANCE_EVIDENCE_PROMPT.format(evidence_list=pe_list_str)
+        pe_results = self.llm.get_json_validation(pe_prompt, doc_context)
 
-        required_text = unit_data.assessment_conditions.description
-        if not required_text:
-            pass
-        elif required_text.lower() not in full_doc_text:
-            gaps.append({
-                "type": "Missing Assessment Condition",
-                "detail": f"The document does not appear to contain the required assessment conditions: '{required_text[:100]}...'",
-                "recommendation": "Ensure the specific assessment conditions from training.gov.au are included and addressed in your assessment materials."
-            })
+        ac_results = self.llm.get_json_validation(ASSESSMENT_CONDITIONS_PROMPT, doc_context)
 
-        instruction_keywords = ["instructions", "procedure", "what you need to do", "task steps"]
-        has_instructions = any(keyword in full_doc_text for keyword in instruction_keywords)
-        
-        if not has_instructions:
-            gaps.append({
-                "type": "Missing Assessment Instructions",
-                "detail": "The document does not seem to contain a clear section for assessment instructions or procedures.",
-                "recommendation": "Add a clear, step-by-step section detailing the instructions for the learner."
-            })
+        ke_list_str = "\n".join([f"- {ke}" for ke in unit_data.knowledge_evidence])
+        ke_prompt = KNOWLEDGE_EVIDENCE_PROMPT.format(evidence_list=ke_list_str)
+        ke_results = self.llm.get_json_validation(ke_prompt, doc_context)
 
-        status = "Gaps Found" if gaps else "Passed"
-        return {"status": status, "gaps": gaps}
-
-    def _validate_epc(self, unit_data: Unit, doc_elements: List[ProcessedElement]) -> Dict[str, Any]:
-        gaps = []
-        full_doc_text = " ".join([elem.text for elem in doc_elements]).lower()
-        
+        criteria_list = []
         for element in unit_data.elements_and_performance_criteria:
             for pc in element.performance_criteria:
-                pc_text = pc.lower()
-                if pc_text not in full_doc_text:
-                    gaps.append({
-                        "type": "Missing Performance Criterion",
-                        "detail": f"The assessment does not seem to address the performance criterion: '{pc}'",
-                        "recommendation": f"Ensure there is an assessment task that requires the student to demonstrate '{pc}'."
-                    })
+                criteria_list.append(f"Element: {element.element_title} | Performance Criterion: {pc}")
+        criteria_list_str = "\n".join([f"- {criteria}" for criteria in criteria_list])
+        epc_prompt = ELEMENTS_PERFORMANCE_CRITERIA_PROMPT.format(criteria_list=criteria_list_str)
+        epc_results = self.llm.get_json_validation(epc_prompt, doc_context)
 
-        status = "Gaps Found" if gaps else "Passed"
-        return {"status": status, "gaps": gaps, "total_criteria": len(unit_data.elements_and_performance_criteria)}
+        final_report = {
+            "unit_code": unit_data.unit_code,
+            "document_name": document_elements[0].metadata.get("file_name", "N/A") if document_elements else "N/A",
+            "validation_summary": {
+                "performance_evidence": pe_results,
+                "assessment_conditions": ac_results,
+                "knowledge_evidence": ke_results,
+                "elements_and_performance_criteria": epc_results,
+            }
+        }
+        
+        return final_report
 
-    def _validate_performance_evidence(self, unit_data: Unit, doc_elements: List[ProcessedElement]) -> Dict[str, Any]:
-        gaps = []
-        full_doc_text = " ".join([elem.text for elem in doc_elements]).lower()
-
-        for pe in unit_data.performance_evidence:
-            pe_text = pe.lower()
-            if pe_text not in full_doc_text:
-                gaps.append({
-                    "type": "Missing Performance Evidence",
-                    "detail": f"The assessment tasks do not appear to generate the required performance evidence: '{pe}'",
-                    "recommendation": f"Design an assessment task where the student must produce evidence for '{pe}'."
-                })
-
-        status = "Gaps Found" if gaps else "Passed"
-        return {"status": status, "gaps": gaps}
-
-    def _validate_knowledge_evidence(self, unit_data: Unit, doc_elements: List[ProcessedElement]) -> Dict[str, Any]:
-        gaps = []
-        full_doc_text = " ".join([elem.text for elem in doc_elements]).lower()
-
-        for ke in unit_data.knowledge_evidence:
-            ke_text = ke.lower()
-            if ke_text not in full_doc_text:
-                gaps.append({
-                    "type": "Missing Knowledge Evidence",
-                    "detail": f"The document does not appear to cover or assess the required knowledge: '{ke}'",
-                    "recommendation": f"Ensure your learner guide contains content on '{ke}' or that there is a knowledge question assessing it."
-                })
-
-        status = "Gaps Found" if gaps else "Passed"
-        return {"status": status, "gaps": gaps}
-
-validation_service = ValidationService()
+validation_service = ValidationService(llm_service=llm_service)

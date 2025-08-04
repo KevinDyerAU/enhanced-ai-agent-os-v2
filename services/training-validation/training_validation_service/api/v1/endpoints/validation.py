@@ -9,7 +9,7 @@ router = APIRouter()
 @router.post(
     "/validate",
     summary="Run Full Validation",
-    description="Validates a processed document against the scraped data of a training unit."
+    description="Validates a processed document against the scraped data of a training unit using advanced LLM-driven analysis."
 )
 async def run_validation(
     unit_data: Unit = Body(..., description="The scraped and parsed data for the training unit."),
@@ -17,7 +17,8 @@ async def run_validation(
     val_service: ValidationService = Depends(lambda: validation_service)
 ) -> Dict[str, Any]:
     """
-    This endpoint orchestrates the entire validation process.
+    This endpoint orchestrates the entire validation process using LLM-driven analysis
+    with detailed prompts for comprehensive compliance checking.
     """
     try:
         results = val_service.validate_document(
