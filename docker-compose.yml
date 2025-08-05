@@ -135,12 +135,15 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aos_user}:${POSTGRES_PASSWORD:-aos_password}@postgres:5432/${POSTGRES_DB:-aos_db}
       - AUDIT_SERVICE_URL=http://audit_service:8006
       - DATA_ARCHITECTURE_URL=http://data_architecture:8020
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     ports:
       - "8007:8007"
     depends_on:
       - postgres
       - audit_service
       - data_architecture
+      - postgres
+      - redis      
     networks:
       - aos_network
     volumes:
@@ -248,17 +251,6 @@ services:
     volumes:
       - ./services/intelligence/web_intelligence_service:/app
       - ./logs:/app/logs
-
-  airlock_system:
-    build: ./services/airlock_system
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/aos_db
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    depends_on:
-      - postgres
-      - redis
 
   # Message Queue - Kafka
   zookeeper:
