@@ -53,7 +53,7 @@ async def test_websocket_connection():
     """Test basic WebSocket connection"""
     print("=== Testing WebSocket Connection ===")
     
-    uri = "ws://localhost:8007/ws/chat/test_room_001"
+    uri = "ws://localhost:8007/api/v1/airlock/items/test_room_001/ws"
     client = WebSocketTestClient(uri, "test_client_1")
     
     connected = await client.connect()
@@ -86,7 +86,7 @@ async def test_multi_client_websocket():
     """Test multiple WebSocket clients"""
     print("=== Testing Multi-Client WebSocket ===")
     
-    uri = "ws://localhost:8007/ws/chat/multi_test_room"
+    uri = "ws://localhost:8007/api/v1/airlock/items/multi_test_room/ws"
     clients = []
     
     for i in range(3):
@@ -136,7 +136,7 @@ async def test_typing_indicators():
     """Test typing indicator functionality"""
     print("=== Testing Typing Indicators ===")
     
-    uri = "ws://localhost:8007/ws/chat/typing_test_room"
+    uri = "ws://localhost:8007/api/v1/airlock/items/typing_test_room/ws"
     client = WebSocketTestClient(uri, "typing_client")
     
     if not await client.connect():
