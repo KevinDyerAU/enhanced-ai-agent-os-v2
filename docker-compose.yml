@@ -249,6 +249,17 @@ services:
       - ./services/intelligence/web_intelligence_service:/app
       - ./logs:/app/logs
 
+  airlock_system:
+    build: ./services/airlock_system
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/aos_db
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+
   # Message Queue - Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
