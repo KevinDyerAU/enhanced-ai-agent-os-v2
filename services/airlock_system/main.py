@@ -353,13 +353,22 @@ class UniversalAirlockService:
                 changes['status'] = {'from': current_item['status'], 'to': update.status.value}
                 
                 if update.status in [AirlockStatus.APPROVED, AirlockStatus.REJECTED]:
-                    param_count += 1
-                    set_clauses.append(f"reviewed_by = ${param_count}")
-                    params.append(updated_by)
-                    
-                    param_count += 1
-                    set_clauses.append(f"reviewed_at = ${param_count}")
-                    params.append(datetime.now(timezone.utc))
+                    if update.status == AirlockStatus.APPROVED:
+                        param_count += 1
+                        set_clauses.append(f"approved_by = ${param_count}")
+                        params.append(updated_by)
+                        
+                        param_count += 1
+                        set_clauses.append(f"approved_at = ${param_count}")
+                        params.append(datetime.now(timezone.utc))
+                    else:  # REJECTED
+                        param_count += 1
+                        set_clauses.append(f"rejected_by = ${param_count}")
+                        params.append(updated_by)
+                        
+                        param_count += 1
+                        set_clauses.append(f"rejected_at = ${param_count}")
+                        params.append(datetime.now(timezone.utc))
                     
                     # Add system message for status change
                     status_message = f"Item {update.status.value} by {updated_by}"
