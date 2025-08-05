@@ -11,11 +11,17 @@ import json
 import tempfile
 from integrations.web_intelligence_client import WebIntelligenceClient
 from integrations.document_processing_client import DocumentProcessingClient
+from integrations.data_architecture_client import DataArchitectureClient
 from validation_coordinator import run_validation_engines, generate_validation_report, create_validation_asset
 from airlock_integration import AirlockIntegration
 from question_generation.smart_question_generator import SMARTQuestionGenerator
 from question_generation.question_manager import QuestionManager
 from reporting.report_generator import ReportGenerator
+from schemas.document_schema import DocumentProcessingResult, DocumentMetadata, ProcessedElement
+from services.document_service import DocumentService, document_service
+from services.validation_service import ValidationService, validation_service
+from services.llm_service import llm_service
+from schemas.unit_schema import Unit
 import httpx
 
 logging.basicConfig(level=logging.INFO)
@@ -33,29 +39,36 @@ app.add_middleware(
 
 web_intelligence_client: Optional[WebIntelligenceClient] = None
 document_processing_client: Optional[DocumentProcessingClient] = None
+data_architecture_client: Optional[DataArchitectureClient] = None
 airlock_client: Optional[AirlockIntegration] = None
 question_generator: Optional[SMARTQuestionGenerator] = None
 question_manager: Optional[QuestionManager] = None
 report_generator: Optional[ReportGenerator] = None
+doc_service: Optional[DocumentService] = None
+val_service: Optional[ValidationService] = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize integration clients on startup"""
-    global web_intelligence_client, document_processing_client, airlock_client
-    global question_generator, question_manager, report_generator
+    global web_intelligence_client, document_processing_client, data_architecture_client, airlock_client
+    global question_generator, question_manager, report_generator, doc_service, val_service
     
     web_intelligence_url = os.getenv("WEB_INTELLIGENCE_URL", "http://web_intelligence_service:8032")
     document_engine_url = os.getenv("DOCUMENT_ENGINE_URL", "http://document_engine:8031")
+    data_architecture_url = os.getenv("DATA_ARCHITECTURE_URL", "http://data_architecture:8020")
     
     web_intelligence_client = WebIntelligenceClient(web_intelligence_url)
     document_processing_client = DocumentProcessingClient(document_engine_url)
+    data_architecture_client = DataArchitectureClient(data_architecture_url)
     airlock_client = AirlockIntegration()
     
     question_generator = SMARTQuestionGenerator()
     question_manager = QuestionManager()
     report_generator = ReportGenerator()
+    doc_service = document_service
+    val_service = ValidationService(llm_service=llm_service, data_architecture_client=data_architecture_client)
     
-    logger.info("Training Validation Service initialized with Phase 3 features")
+    logger.info("Training Validation Service initialized with Phase 3 features, document processing, and vector store context")
 
 async def get_db_connection():
     database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/aos_db")
@@ -332,6 +345,44 @@ async def upload_document(session_id: str, file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error uploading document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/documents/upload", response_model=DocumentProcessingResult)
+async def upload_and_process_document(file: UploadFile = File(...)):
+    """
+    Upload and process a document using the unstructured library.
+    This is a general document processing endpoint that doesn't require a validation session.
+    """
+    if not file:
+        raise HTTPException(
+            status_code=400,
+            detail="No file was uploaded."
+        )
+
+    if not doc_service:
+        raise HTTPException(
+            status_code=503,
+            detail="Document processing service not available"
+        )
+
+    document_metadata = DocumentMetadata(
+        file_name=file.filename,
+        content_type=file.content_type,
+        size=file.size
+    )
+
+    try:
+        processed_elements = await doc_service.process_document(file)
+    except Exception as e:
+        logger.error(f"Error processing document: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process document: {str(e)}"
+        )
+
+    return DocumentProcessingResult(
+        metadata=document_metadata,
+        elements=processed_elements
+    )
 
 @app.post("/api/v1/validation-sessions/{session_id}/validate")
 async def execute_validation(session_id: str, request: ValidationRequest = ValidationRequest()):
@@ -1003,6 +1054,32 @@ async def get_system_usage_analytics():
     except Exception as e:
         logger.error(f"Error getting system usage analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/validation/validate")
+async def run_full_validation(
+    unit_data: Unit,
+    document_data: DocumentProcessingResult
+):
+    """
+    Validates a processed document against the scraped data of a training unit.
+    Runs all validation checks and returns a comprehensive report.
+    """
+    try:
+        if not val_service:
+            raise HTTPException(status_code=500, detail="Validation service not initialized")
+            
+        results = await val_service.validate_document_fully(
+            unit_data=unit_data,
+            document_elements=document_data.elements
+        )
+        
+        logger.info(f"Validation completed for unit {unit_data.unit_code}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error during validation: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred during validation: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
