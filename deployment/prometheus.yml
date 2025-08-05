@@ -1,11 +1,43 @@
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "alert_rules.yml"
 
 scrape_configs:
   - job_name: 'orchestration-agent'
     static_configs:
       - targets: ['orchestration_agent:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+  
+  - job_name: 'airlock-system'
+    static_configs:
+      - targets: ['airlock_system:8007']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    
+  - job_name: 'training-validation-service'
+    static_configs:
+      - targets: ['training_validation_service:8033']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    
+  - job_name: 'ideation-agent'
+    static_configs:
+      - targets: ['ideation_agent:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    
+  - job_name: 'data-architecture'
+    static_configs:
+      - targets: ['data_architecture:8020']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
   
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
