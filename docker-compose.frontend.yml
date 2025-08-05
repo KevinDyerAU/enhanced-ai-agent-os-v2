@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # Frontend for Universal Airlock UI
+  universal-airlock-ui:
+    build: ./frontend/universal-airlock-ui
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8007
+      - VITE_WS_URL=ws://localhost:8007
+    networks:
+      - aos_network
+    volumes:
+      - ./frontend/universal-airlock-ui:/app
+      - /app/node_modules
+    depends_on:
+      - airlock_system
+
+networks:
+  aos_network:
+    external: true
