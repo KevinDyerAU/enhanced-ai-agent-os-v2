@@ -168,7 +168,7 @@ class UniversalAirlockService:
                 item.assigned_reviewer_id, item.review_deadline)
             
             # Create initial chat session
-            await self._create_chat_session(conn, item_id, "system", "airlock_system")
+            await self._create_chat_session(conn, item_id, "agent", "airlock_system")
             
             # Add system message
             await self._add_system_message(conn, item_id, f"Airlock item created for review: {item.title}")
@@ -717,23 +717,22 @@ class UniversalAirlockService:
                 self.active_connections[item_id].remove(ws)
     
     # Helper methods
-    async def _get_or_create_content_type(self, conn, content_type: ContentType) -> str:
+    async def _get_or_create_content_type(self, conn, content_type: ContentType) -> int:
         """Get or create content type"""
         row = await conn.fetchrow("""
             SELECT id FROM airlock_content_types WHERE name = $1
         """, content_type.value)
         
         if row:
-            return str(row['id'])
+            return row['id']
         
         # Create new content type
-        content_type_id = str(uuid.uuid4())
-        await conn.execute("""
-            INSERT INTO airlock_content_types (id, name, description)
-            VALUES ($1, $2, $3)
-        """, content_type_id, content_type.value, f"Content type for {content_type.value}")
+        row = await conn.fetchrow("""
+            INSERT INTO airlock_content_types (name, description)
+            VALUES ($1, $2) RETURNING id
+        """, content_type.value, f"Content type for {content_type.value}")
         
-        return content_type_id
+        return row['id']
     
     async def _create_chat_session(self, conn, item_id: str, participant_type: str, participant_id: str) -> str:
         """Create a chat session"""
@@ -758,14 +757,14 @@ class UniversalAirlockService:
     
     async def _add_system_message(self, conn, item_id: str, content: str):
         """Add a system message to the chat"""
-        session_id = await self._get_or_create_chat_session(conn, item_id, "system", "airlock_system")
+        session_id = await self._get_or_create_chat_session(conn, item_id, "agent", "airlock_system")
         message_id = str(uuid.uuid4())
         await conn.execute("""
             INSERT INTO airlock_chat_messages (
                 id, session_id, sender_type, sender_id, message_type, content, metadata
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """, message_id, session_id, "system", "airlock_system", 
-            MessageType.SYSTEM.value, content, json.dumps({}))
+        """, message_id, session_id, "agent", "airlock_system", 
+            "text", content, json.dumps({}))
     
     async def _notify_reviewer(self, item_id: str, reviewer_id: str, action: str):
         """Notify reviewer of assignment or other actions"""
