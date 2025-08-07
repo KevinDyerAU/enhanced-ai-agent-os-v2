@@ -10,13 +10,47 @@ import asyncpg
 import json
 import uuid
 import logging
+import structlog
 from enum import Enum
 import os
 import httpx
+import time
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from fastapi.responses import Response
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+# Configure basic logging as fallback
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = structlog.get_logger(__name__)
+
+REQUEST_COUNT = Counter('airlock_requests_total', 'Total requests', ['method', 'endpoint', 'status'])
+REQUEST_DURATION = Histogram('airlock_request_duration_seconds', 'Request duration', ['method', 'endpoint'])
+ACTIVE_WEBSOCKET_CONNECTIONS = Gauge('airlock_websocket_connections_active', 'Active WebSocket connections')
+AIRLOCK_ITEMS_TOTAL = Gauge('airlock_items_total', 'Total airlock items', ['status'])
+DATABASE_OPERATIONS = Counter('airlock_database_operations_total', 'Database operations', ['operation', 'status'])
+CHAT_MESSAGES_TOTAL = Counter('airlock_chat_messages_total', 'Total chat messages', ['message_type'])
+FEEDBACK_SUBMISSIONS = Counter('airlock_feedback_submissions_total', 'Feedback submissions', ['feedback_type'])
 
 # Pydantic Models
 class ContentType(str, Enum):
@@ -149,6 +183,7 @@ class UniversalAirlockService:
     
     async def create_airlock_item(self, item: AirlockItemCreate, created_by_agent_id: Optional[str] = None) -> str:
         """Create a new airlock item for review"""
+        start_time = time.time()
         conn = await self.get_db_connection()
         try:
             # Get or create content type
@@ -185,8 +220,22 @@ class UniversalAirlockService:
             if item.assigned_reviewer_id:
                 await self._notify_reviewer(item_id, item.assigned_reviewer_id, "assigned")
             
+            DATABASE_OPERATIONS.labels(operation="create_item", status="success").inc()
+            logger.info("Airlock item created successfully", 
+                       item_id=item_id, 
+                       content_type=item.content_type.value,
+                       source_service=item.source_service,
+                       duration_ms=round((time.time() - start_time) * 1000, 2))
+            
             return item_id
             
+        except Exception as e:
+            DATABASE_OPERATIONS.labels(operation="create_item", status="error").inc()
+            logger.error("Error creating airlock item", 
+                        error=str(e),
+                        content_type=item.content_type.value,
+                        duration_ms=round((time.time() - start_time) * 1000, 2))
+            raise
         finally:
             await conn.close()
     
@@ -498,6 +547,7 @@ class UniversalAirlockService:
     
     async def add_feedback(self, item_id: str, feedback: FeedbackCreate) -> str:
         """Add feedback to an airlock item"""
+        start_time = time.time()
         conn = await self.get_db_connection()
         try:
             # Verify item exists
@@ -526,8 +576,24 @@ class UniversalAirlockService:
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
+            FEEDBACK_SUBMISSIONS.labels(feedback_type=feedback.feedback_type.value).inc()
+            DATABASE_OPERATIONS.labels(operation="add_feedback", status="success").inc()
+            logger.info("Feedback added successfully", 
+                       feedback_id=feedback_id,
+                       item_id=item_id,
+                       feedback_type=feedback.feedback_type.value,
+                       provided_by=feedback.provided_by,
+                       duration_ms=round((time.time() - start_time) * 1000, 2))
+            
             return feedback_id
             
+        except Exception as e:
+            DATABASE_OPERATIONS.labels(operation="add_feedback", status="error").inc()
+            logger.error("Error adding feedback", 
+                        error=str(e),
+                        item_id=item_id,
+                        duration_ms=round((time.time() - start_time) * 1000, 2))
+            raise
         finally:
             await conn.close()
     
@@ -699,7 +765,10 @@ class UniversalAirlockService:
         if item_id not in self.active_connections:
             self.active_connections[item_id] = []
         self.active_connections[item_id].append(websocket)
-        logger.info(f"WebSocket connected to item {item_id}")
+        ACTIVE_WEBSOCKET_CONNECTIONS.set(sum(len(conns) for conns in self.active_connections.values()))
+        logger.info("WebSocket connected", 
+                   item_id=item_id,
+                   total_connections=sum(len(conns) for conns in self.active_connections.values()))
     
     async def disconnect_websocket(self, websocket: WebSocket, item_id: str):
         """Disconnect a WebSocket from an airlock item"""
@@ -708,7 +777,10 @@ class UniversalAirlockService:
                 self.active_connections[item_id].remove(websocket)
             if not self.active_connections[item_id]:
                 del self.active_connections[item_id]
-        logger.info(f"WebSocket disconnected from item {item_id}")
+        ACTIVE_WEBSOCKET_CONNECTIONS.set(sum(len(conns) for conns in self.active_connections.values()))        
+        logger.info("WebSocket disconnected", 
+                   item_id=item_id,
+                   total_connections=sum(len(conns) for conns in self.active_connections.values()))
     
     async def _broadcast_to_item(self, item_id: str, message: Dict):
         """Broadcast a message to all connected clients for an item"""
@@ -810,11 +882,20 @@ airlock_service = UniversalAirlockService(DATABASE_URL)
 @app.post("/api/v1/airlock/items", response_model=Dict[str, str])
 async def create_airlock_item(item: AirlockItemCreate, created_by_agent_id: Optional[str] = None):
     """Create a new airlock item for review"""
+    start_time = time.time()
     try:
         item_id = await airlock_service.create_airlock_item(item, created_by_agent_id)
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items", status="200").inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items").observe(time.time() - start_time)
         return {"item_id": item_id, "status": "created"}
+    except HTTPException as e:
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items", status=str(e.status_code)).inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items").observe(time.time() - start_time)
+        raise
     except Exception as e:
-        logger.error(f"Error creating airlock item: {e}")
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items", status="500").inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items").observe(time.time() - start_time)
+        logger.error("Error creating airlock item", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/airlock/items/{item_id}", response_model=AirlockItemResponse)
@@ -836,9 +917,19 @@ async def list_airlock_items(
     offset: int = Query(0, ge=0, description="Number of items to skip")
 ):
     """List airlock items with optional filters"""
-    return await airlock_service.list_airlock_items(
-        status, assigned_reviewer, source_service, content_type, priority, limit, offset
-    )
+    start_time = time.time()
+    try:
+        result = await airlock_service.list_airlock_items(
+            status, assigned_reviewer, source_service, content_type, priority, limit, offset
+        )
+        REQUEST_COUNT.labels(method="GET", endpoint="/api/v1/airlock/items", status="200").inc()
+        REQUEST_DURATION.labels(method="GET", endpoint="/api/v1/airlock/items").observe(time.time() - start_time)
+        return result
+    except Exception as e:
+        REQUEST_COUNT.labels(method="GET", endpoint="/api/v1/airlock/items", status="500").inc()
+        REQUEST_DURATION.labels(method="GET", endpoint="/api/v1/airlock/items").observe(time.time() - start_time)
+        logger.error("Error listing airlock items", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve items")
 
 @app.put("/api/v1/airlock/items/{item_id}")
 async def update_airlock_item(item_id: str, update: AirlockItemUpdate, updated_by: str = Query(..., description="ID of user making the update")):
@@ -862,8 +953,21 @@ async def get_chat_messages(item_id: str, limit: int = Query(50, ge=1, le=100), 
 @app.post("/api/v1/airlock/items/{item_id}/feedback")
 async def add_feedback(item_id: str, feedback: FeedbackCreate):
     """Add feedback to an airlock item"""
-    feedback_id = await airlock_service.add_feedback(item_id, feedback)
-    return {"feedback_id": feedback_id, "status": "added"}
+    start_time = time.time()
+    try:
+        feedback_id = await airlock_service.add_feedback(item_id, feedback)
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback", status="200").inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback").observe(time.time() - start_time)
+        return {"feedback_id": feedback_id, "status": "added"}
+    except HTTPException as e:
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback", status=str(e.status_code)).inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback").observe(time.time() - start_time)
+        raise
+    except Exception as e:
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback", status="500").inc()
+        REQUEST_DURATION.labels(method="POST", endpoint="/api/v1/airlock/items/{id}/feedback").observe(time.time() - start_time)
+        logger.error("Unexpected error in add_feedback", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/v1/airlock/items/{item_id}/feedback", response_model=List[FeedbackResponse])
 async def get_feedback(item_id: str):
@@ -895,6 +999,13 @@ async def websocket_endpoint(websocket: WebSocket, item_id: str):
             data = await websocket.receive_text()
             try:
                 message_data = json.loads(data)
+                
+                CHAT_MESSAGES_TOTAL.labels(message_type=message_data.get('type', 'unknown')).inc()
+                logger.info("WebSocket message received", 
+                           item_id=item_id,
+                           message_type=message_data.get('type'),
+                           sender_id=message_data.get('sender_id'))
+                
                 # Handle different message types
                 if message_data.get("type") == "ping":
                     await websocket.send_json({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()})
@@ -914,8 +1025,68 @@ async def websocket_endpoint(websocket: WebSocket, item_id: str):
 
 @app.get("/api/v1/airlock/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "universal_airlock", "timestamp": datetime.now(timezone.utc).isoformat()}
+    """Enhanced health check endpoint with detailed status"""
+    start_time = time.time()
+    health_status = {
+        "status": "healthy",
+        "service": "universal_airlock",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "2.0.0",
+        "components": {}
+    }
+    
+    try:
+        conn = await airlock_service.get_db_connection()
+        await conn.execute("SELECT 1")
+        await conn.close()
+        health_status["components"]["database"] = {"status": "healthy", "response_time_ms": round((time.time() - start_time) * 1000, 2)}
+        DATABASE_OPERATIONS.labels(operation="health_check", status="success").inc()
+    except Exception as e:
+        logger.error("Database health check failed", error=str(e))
+        health_status["components"]["database"] = {"status": "unhealthy", "error": str(e)}
+        health_status["status"] = "degraded"
+        DATABASE_OPERATIONS.labels(operation="health_check", status="error").inc()
+    
+    active_connections = sum(len(conns) for conns in airlock_service.active_connections.values())
+    health_status["components"]["websocket"] = {
+        "status": "healthy",
+        "active_connections": active_connections
+    }
+    ACTIVE_WEBSOCKET_CONNECTIONS.set(active_connections)
+    
+    try:
+        conn = await airlock_service.get_db_connection()
+        
+        # Count items by status
+        items_by_status = await conn.fetch("""
+            SELECT status, COUNT(*) as count 
+            FROM airlock_items 
+            GROUP BY status
+        """)
+        
+        for row in items_by_status:
+            AIRLOCK_ITEMS_TOTAL.labels(status=row['status']).set(row['count'])
+        
+        health_status["components"]["metrics"] = {
+            "status": "healthy",
+            "items_by_status": {row['status']: row['count'] for row in items_by_status}
+        }
+        
+        await conn.close()
+    except Exception as e:
+        logger.error("Metrics collection failed", error=str(e))
+        health_status["components"]["metrics"] = {"status": "degraded", "error": str(e)}
+    
+    logger.info("Health check completed", 
+                status=health_status["status"],
+                response_time_ms=round((time.time() - start_time) * 1000, 2))
+    
+    return health_status
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 if __name__ == "__main__":
     import uvicorn
