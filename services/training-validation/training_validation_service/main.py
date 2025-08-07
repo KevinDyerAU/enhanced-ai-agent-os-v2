@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -15,7 +15,7 @@ from monitoring.metrics import setup_metrics, VALIDATION_SESSIONS, DOCUMENTS_PRO
 from integrations.web_intelligence_client import WebIntelligenceClient
 from integrations.document_processing_client import DocumentProcessingClient
 from integrations.data_architecture_client import DataArchitectureClient
-from validation_coordinator import run_validation_engines, generate_validation_report, create_validation_asset
+from validation_coordinator import run_validation_engines, generate_validation_report, create_validation_asset, serialize_dataclass_recursively
 from airlock_integration import AirlockIntegration
 from question_generation.smart_question_generator import SMARTQuestionGenerator
 from question_generation.question_manager import QuestionManager
@@ -518,18 +518,26 @@ async def execute_validation(session_id: str, request: ValidationRequest = Valid
         logger.info(f"Documents count: {len(documents_list)}")
         
         validation_results = await run_validation_engines(session_dict, documents_list)
+        logger.info(f"Validation results type: {type(validation_results)}")
+        logger.info(f"Validation results keys: {validation_results.keys() if isinstance(validation_results, dict) else 'Not a dict'}")
+        if isinstance(validation_results, dict) and "findings" in validation_results:
+            logger.info(f"Findings type: {type(validation_results['findings'])}")
+            if isinstance(validation_results["findings"], dict):
+                for key, value in validation_results["findings"].items():
+                    logger.info(f"Finding {key} type: {type(value)}")
+                    if hasattr(value, '__dict__'):
+                        logger.info(f"Finding {key} attributes: {list(value.__dict__.keys())}")
         
         result_id = await conn.fetchval(
             """INSERT INTO validation_results 
-               (session_id, validation_type, status, score, findings, recommendations, validated_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+               (session_id, validation_type, status, score, findings, recommendations)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
             uuid.UUID(session_id),
             "comprehensive",
             "completed",
             validation_results["overall_score"],
-            json.dumps(validation_results["findings"]),
-            json.dumps(validation_results["recommendations"]),
-            "system"
+            json.dumps(serialize_dataclass_recursively(validation_results["findings"])),
+            json.dumps(serialize_dataclass_recursively(validation_results["recommendations"]))
         )
         
         logger.info("About to generate validation report")
@@ -731,16 +739,17 @@ async def generate_questions_for_session(session_id: str, request: QuestionGener
         
         training_unit = dict(session)
         questions_data = await question_generator.generate_questions_from_validation(
-            validation_results, training_unit, request.question_count
+            validation_results, training_unit, request.question_count or 5
         )
         
         if "error" in questions_data:
             await conn.close()
             raise HTTPException(status_code=500, detail=questions_data["error"])
         
-        save_result = await question_manager.save_questions(
-            questions_data["questions"], session_id, training_unit["unit_code"]
-        )
+        if question_manager:
+            save_result = await question_manager.save_questions(
+                questions_data["questions"], session_id, training_unit["unit_code"]
+            )
         
         await conn.close()
         
@@ -936,7 +945,7 @@ async def generate_comprehensive_report(session_id: str, request: ReportGenerati
             questions = await question_manager.get_questions_by_session(session_id)
         
         report_result = await report_generator.generate_comprehensive_report(
-            validation_results, session, session, questions, request.format_type
+            validation_results, session, session, questions, request.format_type or "markdown"
         )
         
         if "error" in report_result:

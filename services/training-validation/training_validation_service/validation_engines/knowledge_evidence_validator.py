@@ -3,14 +3,20 @@ from typing import Dict, Any, List
 import json
 import re
 from .validation_gap import ValidationGap
+from .base_validator import BaseValidator
+from models.validation_models import ValidationType, TrainingUnit, ValidationDocument, ValidationResult
 
 logger = logging.getLogger(__name__)
 
-class KnowledgeEvidenceValidator:
+class KnowledgeEvidenceValidator(BaseValidator):
     """Validates training documents against Knowledge Evidence (KE) requirements"""
     
     def __init__(self, strictness_level: str = "normal"):
-        self.strictness_level = strictness_level
+        super().__init__(strictness_level)
+    
+    @classmethod
+    def get_validation_type(cls) -> ValidationType:
+        return ValidationType.KNOWLEDGE_EVIDENCE
     
     async def validate(self, training_unit: Dict[str, Any], documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute Knowledge Evidence validation"""

@@ -250,6 +250,70 @@ Key Areas Requiring Attention:"""
         except Exception as e:
             logger.warning(f"Failed to add validation summary: {e}")
     
+    async def submit_for_review(self, asset_id: str, reviewer_id: str, priority: str = "normal") -> Dict[str, Any]:
+        """Submit an asset for review in the airlock system"""
+        try:
+            review_data = {
+                "asset_id": asset_id,
+                "reviewer_id": reviewer_id,
+                "priority": priority,
+                "submitted_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            response = await self.client.post(
+                f"{self.airlock_base_url}/api/v1/airlock/submit-for-review",
+                json=review_data
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"Successfully submitted asset {asset_id} for review")
+                return {"success": True, "review_id": result.get("review_id")}
+            else:
+                logger.error(f"Failed to submit for review: {response.status_code} - {response.text}")
+                return {"success": False, "error": f"Submission failed: {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"Error submitting for review: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_asset_status(self, asset_id: str) -> Dict[str, Any]:
+        """Get the status of an asset in the airlock system"""
+        try:
+            response = await self.client.get(
+                f"{self.airlock_base_url}/api/v1/airlock/assets/{asset_id}/status"
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return {"success": True, "status": result}
+            else:
+                logger.error(f"Failed to get asset status: {response.status_code} - {response.text}")
+                return {"success": False, "error": f"Status retrieval failed: {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"Error getting asset status: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_pending_validation_reports(self) -> Dict[str, Any]:
+        """Get all pending validation reports from the airlock system"""
+        try:
+            response = await self.client.get(
+                f"{self.airlock_base_url}/api/v1/airlock/pending-reports",
+                params={"content_type": "training_validation"}
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return {"success": True, "reports": result.get("reports", [])}
+            else:
+                logger.error(f"Failed to get pending reports: {response.status_code} - {response.text}")
+                return {"success": False, "error": f"Reports retrieval failed: {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"Error getting pending reports: {e}")
+            return {"success": False, "error": str(e)}
+
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()

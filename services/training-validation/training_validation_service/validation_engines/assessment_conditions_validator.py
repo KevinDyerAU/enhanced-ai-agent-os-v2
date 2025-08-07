@@ -4,14 +4,16 @@ import json
 import re
 import textstat
 from .validation_gap import ValidationGap
+from .base_validator import BaseValidator
+from models.validation_models import ValidationType, TrainingUnit, ValidationDocument, ValidationResult
 
 logger = logging.getLogger(__name__)
 
-class AssessmentConditionsValidator:
+class AssessmentConditionsValidator(BaseValidator):
     """Validates training documents against Assessment Conditions (AC) requirements"""
     
     def __init__(self, strictness_level: str = "normal"):
-        self.strictness_level = strictness_level
+        super().__init__(strictness_level)
         self.ac_categories = [
             "environment",  # Assessment Environment
             "resources",    # Necessary Resources  
@@ -21,6 +23,10 @@ class AssessmentConditionsValidator:
             "third_party",  # Third-Party Reports
             "timing"        # Time Constraints
         ]
+    
+    @classmethod
+    def get_validation_type(cls) -> ValidationType:
+        return ValidationType.ASSESSMENT_CONDITIONS
     
     async def validate(self, training_unit: Dict[str, Any], documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute Assessment Conditions validation"""
