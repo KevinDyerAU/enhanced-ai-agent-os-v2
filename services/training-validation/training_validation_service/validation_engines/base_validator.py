@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from models.validation_models import TrainingUnit, ValidationDocument, ValidationResult, ValidationType
 
@@ -39,7 +39,7 @@ class BaseValidator(ABC):
         self, 
         matches: int, 
         total_required: int, 
-        weights: Dict[str, float] = None
+        weights: Optional[Dict[str, float]] = None
     ) -> float:
         """
         Calculate a normalized score based on matches and required items.
