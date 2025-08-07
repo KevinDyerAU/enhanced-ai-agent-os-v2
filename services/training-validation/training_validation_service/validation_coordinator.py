@@ -6,7 +6,7 @@ This module coordinates the execution of multiple validation engines and aggrega
 import logging
 import json
 from typing import Dict, List, Any, Optional, Type, TypeVar
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -24,10 +24,24 @@ from models.validation_models import (
 logger = logging.getLogger(__name__)
 T = TypeVar('T', bound=BaseValidator)
 
+def serialize_dataclass_recursively(obj):
+    """Recursively convert dataclass objects to dictionaries for JSON serialization."""
+    import uuid
+    if is_dataclass(obj):
+        return {k: serialize_dataclass_recursively(v) for k, v in asdict(obj).items()}
+    elif isinstance(obj, dict):
+        return {k: serialize_dataclass_recursively(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_dataclass_recursively(item) for item in obj]
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
+    else:
+        return obj
+
 class ValidationCoordinator:
     """Coordinates the execution of multiple validation engines."""
     
-    def __init__(self, validators: Dict[ValidationType, Type[BaseValidator]] = None):
+    def __init__(self, validators: Optional[Dict[ValidationType, Type[BaseValidator]]] = None):
         """Initialize with a dictionary of validator classes."""
         self.validators = validators or {}
     
@@ -43,7 +57,16 @@ class ValidationCoordinator:
         """Run a single validator and handle errors."""
         validator = validator_class(request.strictness_level)
         try:
-            return await validator.validate(request.training_unit, request.documents)
+            # Convert dataclass objects to dictionaries for legacy validators
+            training_unit_dict = asdict(request.training_unit)
+            documents_list = [asdict(doc) for doc in request.documents]
+            result_dict = await validator.validate(training_unit_dict, documents_list)
+            return ValidationResult(
+                validation_type=validator_class.get_validation_type(),
+                overall_score=result_dict.get("overall_score", 0),
+                details=result_dict,
+                recommendations=result_dict.get("recommendations", [])
+            )
         except Exception as e:
             logger.exception(f"Validator {validator_class.__name__} failed")
             return ValidationResult(
@@ -113,7 +136,7 @@ async def run_validation_engines(session: Dict[str, Any], documents: List[Dict[s
     """Legacy function that wraps the new coordinator."""
     from validation_engines import (
         AssessmentConditionsValidator,
-        KnowledgeEvidenceValidator,
+        KnowledgeEvidenceValidator, 
         PerformanceEvidenceValidator,
         FoundationSkillsValidator
     )
@@ -169,13 +192,7 @@ async def run_validation_engines(session: Dict[str, Any], documents: List[Dict[s
     
     # Run validation and convert response to legacy format
     response = await default_coordinator.run_validation(request)
-    return {
-        "overall_score": response.overall_score,
-        "findings": response.findings,
-        "recommendations": response.recommendations,
-        "summary": asdict(response.summary),
-        "strictness_level": response.strictness_level
-    }
+    return serialize_dataclass_recursively(response)
 
 async def generate_validation_report(session: Dict[str, Any], validation_results: Dict[str, Any]) -> str:
     """
@@ -350,43 +367,20 @@ async def create_validation_asset(conn, session: Dict[str, Any], report_content:
         asset_id = str(uuid.uuid4())
         created_at = datetime.utcnow()
         
-        # Insert into assets table
+        # Insert into validation_reports table (skip creative_assets as it doesn't exist)
         await conn.execute(
             """
-            INSERT INTO creative_assets (id, name, description, asset_type, status, 
-                                      created_by, created_at, updated_at, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO validation_reports (id, session_id, report_type, format, title, content, generated_by, generated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
-            asset_id,
+            str(uuid.uuid4()),
+            str(session.get('id')),
+            "comprehensive",
+            "markdown",
             f"Validation Report - {session.get('unit_code')} - {session.get('name')}",
-            f"Validation report for {session.get('unit_code')} - {session.get('unit_title', '')}",
-            "validation_report",
-            "pending_review",
-            session.get('created_by', 'system'),
-            created_at,
-            created_at,
-            json.dumps({
-                "session_id": session.get('id'),
-                "unit_code": session.get('unit_code'),
-                "validation_result_id": result_id,
-                "report_type": "validation"
-            })
-        )
-        
-        # Insert into validation_reports table
-        await conn.execute(
-            """
-            INSERT INTO validation_reports (id, session_id, report_content, status, 
-                                         created_at, updated_at, asset_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            """,
-            result_id,
-            session.get('id'),
             report_content,
-            "pending_review",
-            created_at,
-            created_at,
-            asset_id
+            session.get('created_by', 'system'),
+            created_at
         )
         
         return {"asset_id": asset_id, "status": "pending_review"}

@@ -2,14 +2,16 @@ import logging
 from typing import Dict, Any, List
 import json
 from .validation_gap import ValidationGap
+from .base_validator import BaseValidator
+from models.validation_models import ValidationType, TrainingUnit, ValidationDocument, ValidationResult
 
 logger = logging.getLogger(__name__)
 
-class FoundationSkillsValidator:
+class FoundationSkillsValidator(BaseValidator):
     """Validates training documents against Foundation Skills (FS) requirements"""
     
     def __init__(self, strictness_level: str = "normal"):
-        self.strictness_level = strictness_level
+        super().__init__(strictness_level)
         self.foundation_skills_categories = {
             "literacy": ["reading", "writing", "communication", "language", "vocabulary"],
             "numeracy": ["mathematics", "calculation", "measurement", "data", "statistics"],
@@ -18,6 +20,10 @@ class FoundationSkillsValidator:
             "teamwork": ["collaboration", "team", "group work", "cooperation"],
             "learning": ["learning", "study", "research", "self-directed"]
         }
+    
+    @classmethod
+    def get_validation_type(cls) -> ValidationType:
+        return ValidationType.FOUNDATION_SKILLS
     
     async def validate(self, training_unit: Dict[str, Any], documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute Foundation Skills validation"""
