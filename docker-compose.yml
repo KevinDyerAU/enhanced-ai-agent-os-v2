@@ -142,7 +142,6 @@ services:
       - postgres
       - audit_service
       - data_architecture
-      - postgres
       - redis      
     networks:
       - aos_network
@@ -252,6 +251,16 @@ services:
       - ./services/intelligence/web_intelligence_service:/app
       - ./logs:/app/logs
 
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - aos_network
+    volumes:
+      - redis_data:/data
+
   # Message Queue - Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -322,3 +331,4 @@ volumes:
   sandbox_storage:
   production_storage:
   grafana_data:
+  redis_data:
