@@ -142,6 +142,8 @@ services:
       - postgres
       - audit_service
       - data_architecture
+      - postgres
+      - redis      
     networks:
       - aos_network
     volumes:
@@ -249,7 +251,6 @@ services:
     volumes:
       - ./services/intelligence/web_intelligence_service:/app
       - ./logs:/app/logs
-
 
   # Message Queue - Kafka
   zookeeper:
