@@ -40,6 +40,7 @@ class DocumentProcessingClient:
         
         text_content = ""
         sections = {}
+        page_numbers_set = set()
         
         for element in elements:
             element_dict = element if isinstance(element, dict) else element
@@ -47,6 +48,10 @@ class DocumentProcessingClient:
             element_type = element_dict.get("type", "")
             
             text_content += text + "\n"
+            # capture page number if available
+            page_no = element_dict.get("metadata", {}).get("page_number")
+            if page_no is not None:
+                page_numbers_set.add(page_no)
             
             if element_type == "Title" or "assessment" in text.lower():
                 sections[text.strip()] = []
@@ -57,6 +62,8 @@ class DocumentProcessingClient:
             "elements": elements,
             "metadata": {
                 "total_elements": len(elements),
-                "processing_timestamp": parsed_data.get("timestamp")
+                "processing_timestamp": parsed_data.get("timestamp"),
+                "page_numbers": sorted(list(page_numbers_set)),
+                "total_pages": len(page_numbers_set)
             }
         }

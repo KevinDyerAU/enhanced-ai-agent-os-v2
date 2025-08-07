@@ -1,100 +1,193 @@
+"""
+Validation Coordinator
+
+This module coordinates the execution of multiple validation engines and aggregates their results.
+"""
 import logging
-from typing import Dict, Any, List
 import json
-from validation_engines.assessment_conditions_validator import AssessmentConditionsValidator
-from validation_engines.knowledge_evidence_validator import KnowledgeEvidenceValidator
-from validation_engines.performance_evidence_validator import PerformanceEvidenceValidator
-from validation_engines.foundation_skills_validator import FoundationSkillsValidator
+from typing import Dict, List, Any, Optional, Type, TypeVar
+from dataclasses import asdict
+import asyncio
+from contextlib import asynccontextmanager
+
+from validation_engines.base_validator import BaseValidator
+from models.validation_models import (
+    ValidationResult, 
+    ValidationSummary, 
+    TrainingUnit, 
+    ValidationDocument,
+    ValidationRequest,
+    ValidationResponse,
+    ValidationType
+)
 
 logger = logging.getLogger(__name__)
+T = TypeVar('T', bound=BaseValidator)
 
+class ValidationCoordinator:
+    """Coordinates the execution of multiple validation engines."""
+    
+    def __init__(self, validators: Dict[ValidationType, Type[BaseValidator]] = None):
+        """Initialize with a dictionary of validator classes."""
+        self.validators = validators or {}
+    
+    def register_validator(self, validator_type: ValidationType, validator_class: Type[BaseValidator]):
+        """Register a new validator class."""
+        self.validators[validator_type] = validator_class
+    
+    async def _run_validator(
+        self, 
+        validator_class: Type[BaseValidator],
+        request: ValidationRequest
+    ) -> ValidationResult:
+        """Run a single validator and handle errors."""
+        validator = validator_class(request.strictness_level)
+        try:
+            return await validator.validate(request.training_unit, request.documents)
+        except Exception as e:
+            logger.exception(f"Validator {validator_class.__name__} failed")
+            return ValidationResult(
+                validation_type=validator_class.get_validation_type(),
+                overall_score=0,
+                details={"error": str(e)},
+                error=str(e)
+            )
+    
+    async def run_validation(self, request: ValidationRequest) -> ValidationResponse:
+        """
+        Run all registered validators in parallel and return aggregated results.
+        
+        Args:
+            request: Validation request containing training unit and documents
+            
+        Returns:
+            ValidationResponse with aggregated results from all validators
+        """
+        logger.info(f"Starting validation for session {request.session_id}")
+        
+        # Run all validators in parallel
+        tasks = [
+            self._run_validator(validator_class, request)
+            for validator_class in self.validators.values()
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        results_by_type = {
+            result.validation_type: result 
+            for result in results 
+            if isinstance(result, ValidationResult)
+        }
+        
+        # Calculate overall metrics
+        scores = [r.overall_score for r in results_by_type.values() if r.error is None]
+        overall_score = sum(scores) / len(scores) if scores else 0
+        
+        # Aggregate recommendations
+        all_recommendations = []
+        for result in results_by_type.values():
+            all_recommendations.extend(result.recommendations)
+        
+        # Create summary
+        summary = ValidationSummary(
+            total_validations=len(results_by_type),
+            successful_validations=len([r for r in results_by_type.values() if r.error is None]),
+            failed_validations=len([r for r in results_by_type.values() if r.error is not None]),
+            average_score=round(overall_score, 2)
+        )
+        
+        return ValidationResponse(
+            overall_score=round(overall_score, 2),
+            findings={k.value: asdict(v) for k, v in results_by_type.items()},
+            recommendations=all_recommendations,
+            summary=summary,
+            strictness_level=request.strictness_level
+        )
+
+# Default coordinator instance with standard validators
+default_coordinator = ValidationCoordinator()
+
+# Helper function for backward compatibility
 async def run_validation_engines(session: Dict[str, Any], documents: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Coordinate execution of all validation engines"""
-    logger.info(f"Starting validation for session {session['id']}")
+    """Legacy function that wraps the new coordinator."""
+    from validation_engines import (
+        AssessmentConditionsValidator,
+        KnowledgeEvidenceValidator,
+        PerformanceEvidenceValidator,
+        FoundationSkillsValidator
+    )
     
+    # Configure coordinator with standard validators if not already done
+    if not default_coordinator.validators:
+        default_coordinator.register_validator(
+            ValidationType.ASSESSMENT_CONDITIONS, 
+            AssessmentConditionsValidator
+        )
+        default_coordinator.register_validator(
+            ValidationType.KNOWLEDGE_EVIDENCE,
+            KnowledgeEvidenceValidator
+        )
+        default_coordinator.register_validator(
+            ValidationType.PERFORMANCE_EVIDENCE,
+            PerformanceEvidenceValidator
+        )
+        default_coordinator.register_validator(
+            ValidationType.FOUNDATION_SKILLS,
+            FoundationSkillsValidator
+        )
+    
+    # Convert legacy format to new request model
     config = session.get("configuration", {}) if isinstance(session.get("configuration"), dict) else json.loads(session.get("configuration", "{}"))
-    strictness_level = config.get("strictness_level", "normal")
     
-    training_unit = {
-        "unit_code": session["unit_code"],
-        "title": session.get("unit_title", session.get("title", "Unknown")),
-        "elements": json.loads(session["elements"]) if isinstance(session["elements"], str) else session.get("elements", []),
-        "performance_criteria": json.loads(session["performance_criteria"]) if isinstance(session["performance_criteria"], str) else session.get("performance_criteria", []),
-        "knowledge_evidence": json.loads(session["knowledge_evidence"]) if isinstance(session["knowledge_evidence"], str) else session.get("knowledge_evidence", []),
-        "performance_evidence": json.loads(session["performance_evidence"]) if isinstance(session["performance_evidence"], str) else session.get("performance_evidence", []),
-        "foundation_skills": json.loads(session["foundation_skills"]) if isinstance(session["foundation_skills"], str) else session.get("foundation_skills", []),
-        "assessment_conditions": json.loads(session["assessment_conditions"]) if isinstance(session["assessment_conditions"], str) else session.get("assessment_conditions", [])
-    }
+    training_unit = TrainingUnit(
+        unit_code=session["unit_code"],
+        title=session.get("unit_title", session.get("title", "Unknown")),
+        elements=session.get("elements", []),
+        performance_criteria=session.get("performance_criteria", []),
+        knowledge_evidence=session.get("knowledge_evidence", []),
+        performance_evidence=session.get("performance_evidence", []),
+        foundation_skills=session.get("foundation_skills", []),
+        assessment_conditions=session.get("assessment_conditions", [])
+    )
     
-    document_list = []
-    for doc in documents:
-        document_list.append({
-            "filename": doc["filename"],
-            "content_extracted": doc["content_extracted"],
-            "metadata": json.loads(doc["metadata"]) if isinstance(doc["metadata"], str) else doc["metadata"]
-        })
+    validation_docs = [
+        ValidationDocument(
+            filename=doc["filename"],
+            content_extracted=doc["content_extracted"],
+            metadata=doc["metadata"] if isinstance(doc["metadata"], dict) else json.loads(doc["metadata"])
+        )
+        for doc in documents
+    ]
     
-    ac_validator = AssessmentConditionsValidator(strictness_level)
-    ke_validator = KnowledgeEvidenceValidator(strictness_level)
-    pe_validator = PerformanceEvidenceValidator(strictness_level)
-    fs_validator = FoundationSkillsValidator(strictness_level)
+    request = ValidationRequest(
+        session_id=session["id"],
+        training_unit=training_unit,
+        documents=validation_docs,
+        strictness_level=config.get("strictness_level", "normal")
+    )
     
-    results = {}
-    
-    try:
-        results["assessment_conditions"] = await ac_validator.validate(training_unit, document_list)
-        logger.info("Assessment Conditions validation completed")
-    except Exception as e:
-        logger.error(f"Assessment Conditions validation failed: {e}")
-        results["assessment_conditions"] = {"validation_type": "assessment_conditions", "overall_score": 0, "error": str(e)}
-    
-    try:
-        results["knowledge_evidence"] = await ke_validator.validate(training_unit, document_list)
-        logger.info("Knowledge Evidence validation completed")
-    except Exception as e:
-        logger.error(f"Knowledge Evidence validation failed: {e}")
-        results["knowledge_evidence"] = {"validation_type": "knowledge_evidence", "overall_score": 0, "error": str(e)}
-    
-    try:
-        results["performance_evidence"] = await pe_validator.validate(training_unit, document_list)
-        logger.info("Performance Evidence validation completed")
-    except Exception as e:
-        logger.error(f"Performance Evidence validation failed: {e}")
-        results["performance_evidence"] = {"validation_type": "performance_evidence", "overall_score": 0, "error": str(e)}
-    
-    try:
-        results["foundation_skills"] = await fs_validator.validate(training_unit, document_list)
-        logger.info("Foundation Skills validation completed")
-    except Exception as e:
-        logger.error(f"Foundation Skills validation failed: {e}")
-        results["foundation_skills"] = {"validation_type": "foundation_skills", "overall_score": 0, "error": str(e)}
-    
-    scores = [result.get("overall_score", 0) for result in results.values()]
-    overall_score = sum(scores) / len(scores) if scores else 0
-    
-    all_recommendations = []
-    for result in results.values():
-        if "recommendations" in result:
-            all_recommendations.extend(result["recommendations"])
-    
-    summary = {
-        "total_validations": len(results),
-        "successful_validations": len([r for r in results.values() if "error" not in r]),
-        "failed_validations": len([r for r in results.values() if "error" in r]),
-        "average_score": round(overall_score, 2)
-    }
-    
+    # Run validation and convert response to legacy format
+    response = await default_coordinator.run_validation(request)
     return {
-        "overall_score": round(overall_score, 2),
-        "findings": results,
-        "recommendations": all_recommendations,
-        "summary": summary,
-        "strictness_level": strictness_level
+        "overall_score": response.overall_score,
+        "findings": response.findings,
+        "recommendations": response.recommendations,
+        "summary": asdict(response.summary),
+        "strictness_level": response.strictness_level
     }
 
 async def generate_validation_report(session: Dict[str, Any], validation_results: Dict[str, Any]) -> str:
-    """Generate a comprehensive validation report in Markdown format"""
+    """
+    Generate a comprehensive validation report in Markdown format.
     
+    Args:
+        session: Session information
+        validation_results: Results from validation_engines
+        
+    Returns:
+        str: Markdown formatted report
+    """
     unit_title = session.get('unit_title', session.get('title', 'Unknown Unit'))
     session_name = session.get('name', 'Unnamed Session')
     unit_code = session.get('unit_code', 'Unknown Code')
@@ -233,32 +326,71 @@ async def generate_validation_report(session: Dict[str, Any], validation_results
     
     return report
 
-async def create_validation_asset(conn, session: Dict[str, Any], report_content: str, result_id: str) -> str:
-    """Create a creative asset for the validation report to go through airlock review"""
+async def create_validation_asset(conn, session: Dict[str, Any], report_content: str, result_id: str) -> Dict[str, str]:
+    """
+    Create a creative asset for the validation report to go through airlock review.
     
-    unit_code = session.get('unit_code', 'Unknown Code')
-    session_name = session.get('name', 'Unnamed Session')
-    session_id = session.get('id', 'unknown')
+    Args:
+        conn: Database connection
+        session: Session information
+        report_content: Markdown content of the report
+        result_id: ID of the validation result
+        
+    Returns:
+        Dict containing asset_id and status
+        
+    Raises:
+        Exception: If there's an error creating the asset
+    """
+    from datetime import datetime
+    import uuid
     
-    asset_id = await conn.fetchval(
-        """INSERT INTO creative_assets 
-           (title, description, type, asset_type, content_url, metadata, status, created_by_agent_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
-        f"Training Validation Report - {unit_code}",
-        f"Comprehensive validation report for {session_name} ({unit_code})",
-        "validation_report",
-        "validation_report",
-        f"/validation/reports/{result_id}",
-        json.dumps({
-            "session_id": str(session_id),
-            "result_id": str(result_id),
-            "unit_code": unit_code,
-            "report_content": report_content,
-            "validation_type": "comprehensive",
-            "generated_by": "training_validation_service"
-        }),
-        "draft",
-        None
-    )
-    
-    return asset_id
+    try:
+        # Create asset in database
+        asset_id = str(uuid.uuid4())
+        created_at = datetime.utcnow()
+        
+        # Insert into assets table
+        await conn.execute(
+            """
+            INSERT INTO creative_assets (id, name, description, asset_type, status, 
+                                      created_by, created_at, updated_at, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """,
+            asset_id,
+            f"Validation Report - {session.get('unit_code')} - {session.get('name')}",
+            f"Validation report for {session.get('unit_code')} - {session.get('unit_title', '')}",
+            "validation_report",
+            "pending_review",
+            session.get('created_by', 'system'),
+            created_at,
+            created_at,
+            json.dumps({
+                "session_id": session.get('id'),
+                "unit_code": session.get('unit_code'),
+                "validation_result_id": result_id,
+                "report_type": "validation"
+            })
+        )
+        
+        # Insert into validation_reports table
+        await conn.execute(
+            """
+            INSERT INTO validation_reports (id, session_id, report_content, status, 
+                                         created_at, updated_at, asset_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+            result_id,
+            session.get('id'),
+            report_content,
+            "pending_review",
+            created_at,
+            created_at,
+            asset_id
+        )
+        
+        return {"asset_id": asset_id, "status": "pending_review"}
+        
+    except Exception as e:
+        logger.exception("Failed to create validation asset")
+        raise RuntimeError(f"Failed to create validation asset: {str(e)}")

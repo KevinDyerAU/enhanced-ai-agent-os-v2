@@ -8,12 +8,23 @@ class LLMService:
     A service to interact with a Large Language Model via OpenRouter for validation tasks.
     """
     def __init__(self):
+        """Initialize the LLM service with OpenRouter configuration.
+        
+        Environment Variables:
+            OPENROUTER_API_KEY: Your OpenRouter API key
+            OPENROUTER_MODEL: The default model to use (defaults to "openai/gpt-4o")
+        """
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+            
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            api_key=api_key,
         )
+        self.default_model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o")
 
-    def get_json_validation(self, prompt: str, context: str, model: str = "openai/gpt-4o") -> Dict[str, Any]:
+    def get_json_validation(self, prompt: str, context: str, model: Optional[str] = None) -> Dict[str, Any]:
         """
         Sends a prompt and a document context to the specified OpenRouter model
         and asks for a structured JSON response for validation.
@@ -22,10 +33,17 @@ class LLMService:
             prompt: The detailed system prompt for the validation task.
             context: The document content to be analyzed.
             model: The model to use via OpenRouter (e.g., "openai/gpt-4o", "anthropic/claude-3.5-sonnet").
+                   If not provided, uses the default model from OPENROUTER_MODEL env var.
 
         Returns:
             A dictionary parsed from the LLM's JSON response.
+            
+        Raises:
+            ValueError: If the response cannot be parsed as JSON or is invalid
+            Exception: For any other errors during the API call
         """
+        model = model or self.default_model
+        
         try:
             response = self.client.chat.completions.create(
                 model=model,
@@ -34,15 +52,37 @@ class LLMService:
                     {"role": "user", "content": f"Here is the document content to analyze:\n\n---\n{context}\n---"}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.0, # Set to 0 for maximum fact-based consistency
+                temperature=0.0,  # Set to 0 for maximum fact-based consistency
                 extra_headers={
-                    "HTTP-Referer": "https://enhanced-ai-agent-os.com", # Replace with your actual site URL
-                    "X-Title": "Training Validation Service", # Replace with your app name
+                    "HTTP-Referer": "https://enhanced-ai-agent-os.com",
+                    "X-Title": "Training Validation Service",
                 }
             )
-            return json.loads(response.choices[0].message.content)
+            
+            # Validate and parse the response
+            if not response.choices or not response.choices[0].message.content:
+                raise ValueError("Empty or invalid response from LLM")
+                
+            result = json.loads(response.choices[0].message.content)
+            
+            # Add metadata about the model used
+            if isinstance(result, dict):
+                result["_metadata"] = {
+                    "model": model,
+                    "service": "openrouter",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+            return result
+            
+        except json.JSONDecodeError as e:
+            error_msg = f"Failed to parse LLM response as JSON: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+            
         except Exception as e:
-            print(f"Error during LLM validation with model {model}: {e}")
-            return {"status": "Error", "detail": str(e)}
+            error_msg = f"Error during LLM validation with model {model}: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg) from e
 
 llm_service = LLMService()

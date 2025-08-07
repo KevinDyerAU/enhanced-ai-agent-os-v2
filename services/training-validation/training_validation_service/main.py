@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -9,6 +9,9 @@ import uuid
 from datetime import datetime
 import json
 import tempfile
+
+# Import metrics configuration
+from monitoring.metrics import setup_metrics, VALIDATION_SESSIONS, DOCUMENTS_PROCESSED
 from integrations.web_intelligence_client import WebIntelligenceClient
 from integrations.document_processing_client import DocumentProcessingClient
 from integrations.data_architecture_client import DataArchitectureClient
@@ -29,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AOS Training Validation Service", version="1.0.0")
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,6 +40,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Setup Prometheus metrics
+setup_metrics(app)
 
 web_intelligence_client: Optional[WebIntelligenceClient] = None
 document_processing_client: Optional[DocumentProcessingClient] = None
@@ -78,6 +85,8 @@ async def get_db_connection():
 
 class TrainingUnitRequest(BaseModel):
     unit_code: str
+    url: Optional[str] = None
+    session_id: Optional[str] = None
 
 class ValidationSessionCreate(BaseModel):
     name: str
@@ -104,6 +113,8 @@ class DocumentUploadResponse(BaseModel):
     file_type: str
     file_size_bytes: int
     processing_status: str
+    total_pages: Optional[int] = None
+    page_numbers: Optional[List[int]] = None
 
 class ValidationRequest(BaseModel):
     strictness_level: Optional[str] = "normal"
@@ -172,7 +183,27 @@ async def retrieve_training_unit(request: TrainingUnitRequest):
             }
         
         if web_intelligence_client:
-            scraped_data = await web_intelligence_client.scrape_training_unit(request.unit_code)
+            # Determine scraping strategy
+            if request.url:
+                raw_scrape = await web_intelligence_client.scrape_url(request.url)
+                scraped_data = {
+                    "unit_code": request.unit_code,
+                    "title": request.url.split("/")[-1][:80] or request.unit_code,
+                    "description": f"Scraped from {request.url}",
+                    "field": None,
+                    "level": None,
+                    "points": None,
+                    "elements": [],
+                    "performance_criteria": [],
+                    "knowledge_evidence": [],
+                    "performance_evidence": [],
+                    "foundation_skills": [],
+                    "assessment_conditions": [],
+                    "raw_data": raw_scrape or {}
+                }
+            else:
+                scraped_data = await web_intelligence_client.scrape_training_unit(request.unit_code)
+
             if scraped_data:
                 unit_id = await conn.fetchval(
                     """INSERT INTO training_units (unit_code, title, description, field, level, points, 
@@ -186,7 +217,30 @@ async def retrieve_training_unit(request: TrainingUnitRequest):
                     json.dumps(scraped_data["foundation_skills"]), json.dumps(scraped_data["assessment_conditions"]),
                     json.dumps(scraped_data["raw_data"])
                 )
+                # correlate with validation session if provided
+                if request.session_id:
+                    await conn.execute(
+                        "UPDATE validation_sessions SET training_unit_id=$1 WHERE id=$2",
+                        unit_id,
+                        uuid.UUID(request.session_id)
+                    )
                 
+                # embed scraped unit JSON
+                try:
+                    if data_architecture_client and scraped_data:
+                        await data_architecture_client.store_document_context(
+                            content=json.dumps(scraped_data["raw_data"]),
+                            metadata={
+                                "content_type": "unit_json",
+                                "unit_code": scraped_data["unit_code"],
+                                "session_id": request.session_id or None,
+                                "training_unit_id": str(unit_id)
+                            },
+                            document_id=str(unit_id)
+                        )
+                except Exception as embed_err:
+                    logger.warning(f"Embedding unit JSON failed: {embed_err}")
+
                 await conn.close()
                 return {
                     "id": str(unit_id),
@@ -325,13 +379,39 @@ async def upload_document(session_id: str, file: UploadFile = File(...)):
             file.content_type or "application/octet-stream",
             len(content),
             processed_data.get("text_content") if processed_data else None,
-            json.dumps(processed_data.get("metadata", {})) if processed_data else "{}",
+            json.dumps(processed_data) if processed_data else "{}",
             "completed" if processed_data else "failed",
             "system"
         )
         
         os.unlink(tmp_path)
-        
+
+        # Embed full document JSON in vector store
+        try:
+            if data_architecture_client and processed_data:
+                # fetch unit code linked to this session, if any
+                unit_row = await conn.fetchrow(
+                    """
+                    SELECT tu.unit_code FROM validation_sessions vs
+                    JOIN training_units tu ON vs.training_unit_id = tu.id
+                    WHERE vs.id = $1
+                    """,
+                    uuid.UUID(session_id)
+                )
+                unit_code_val = unit_row["unit_code"] if unit_row else None
+                await data_architecture_client.store_document_context(
+                    content=json.dumps(processed_data),
+                    metadata={
+                        "content_type": "document_json",
+                        "session_id": session_id,
+                        "unit_code": unit_code_val,
+                        "document_id": str(document_id)
+                    },
+                    document_id=str(document_id)
+                )
+        except Exception as embed_err:
+            logger.warning(f"Embedding document JSON failed: {embed_err}")
+         
         await conn.close()
         
         return DocumentUploadResponse(
@@ -339,7 +419,9 @@ async def upload_document(session_id: str, file: UploadFile = File(...)):
             filename=file.filename,
             file_type=file.content_type or "application/octet-stream",
             file_size_bytes=len(content),
-            processing_status="completed" if processed_data else "failed"
+            processing_status="completed" if processed_data else "failed",
+            total_pages=processed_data.get("metadata", {}).get("total_pages") if processed_data else None,
+            page_numbers=processed_data.get("metadata", {}).get("page_numbers") if processed_data else None
         )
         
     except Exception as e:
@@ -372,6 +454,20 @@ async def upload_and_process_document(file: UploadFile = File(...)):
 
     try:
         processed_elements = await doc_service.process_document(file)
+
+        # embed in vector store for generic docs
+        try:
+            if data_architecture_client and processed_elements:
+                await data_architecture_client.store_document_context(
+                    content=json.dumps([e.dict() if hasattr(e, 'dict') else e for e in processed_elements]),
+                    metadata={
+                        "content_type": "document_json",
+                        "source": "generic_upload",
+                        "file_name": file.filename
+                    }
+                )
+        except Exception as embed_err:
+            logger.warning(f"Embedding generic document JSON failed: {embed_err}")
     except Exception as e:
         logger.error(f"Error processing document: {e}")
         raise HTTPException(
@@ -536,6 +632,26 @@ async def submit_validation_report_for_review(asset_id: str, request: AirlockSub
     except Exception as e:
         logger.error(f"Error submitting validation report for review: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/validation/reports/{result_id}")
+async def download_validation_report(result_id: str):
+    """Download the markdown report content for a given validation result ID."""
+    try:
+        conn = await get_db_connection()
+        asset = await conn.fetchrow(
+            """SELECT metadata FROM creative_assets WHERE metadata ->> 'result_id' = $1""",
+            result_id
+        )
+        await conn.close()
+        if not asset:
+            raise HTTPException(status_code=404, detail="Report not found")
+        meta = asset["metadata"] if isinstance(asset["metadata"], dict) else json.loads(asset["metadata"])
+        content = meta.get("report_content", "")
+        return Response(content=content, media_type="text/markdown")
+    except Exception as e:
+        logger.error(f"Error downloading report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/validation-reports/{asset_id}/status")
 async def get_validation_report_status(asset_id: str):

@@ -1,7 +1,6 @@
 import logging
 from typing import Dict, Any, List, Optional
 import json
-import openai
 from openai import OpenAI
 import os
 from datetime import datetime
@@ -12,7 +11,11 @@ class SMARTQuestionGenerator:
     """Generates SMART questions based on validation findings and training unit requirements"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
+        self.default_model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
         self.question_types = [
             "open_ended",
             "multiple_choice", 
