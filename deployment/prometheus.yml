@@ -1,7 +1,16 @@
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
+  - job_name: 'training-validation-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['training_validation:8033']
+        labels:
+          service: 'training-validation'
+          environment: 'production'
+
   - job_name: 'orchestration-agent'
     static_configs:
       - targets: ['orchestration_agent:8000']

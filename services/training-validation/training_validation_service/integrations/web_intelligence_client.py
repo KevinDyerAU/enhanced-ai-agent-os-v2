@@ -31,6 +31,23 @@ class WebIntelligenceClient:
             logger.error(f"Error scraping training unit {unit_code}: {e}")
             return None
     
+    async def scrape_url(self, url: str) -> Optional[Dict[str, Any]]:
+        """Generic scrape returning raw HTML/text as JSON from the Web Intelligence Service"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/scrape",
+                    json={"url": url},
+                    headers={"Content-Type": "application/json"}
+                )
+                if response.status_code == 200:
+                    return response.json()
+                logger.error(f"Failed to scrape url {url}: {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"Error scraping url {url}: {e}")
+            return None
+
     def _parse_training_unit_data(self, scraped_data: Dict[str, Any], unit_code: str) -> Dict[str, Any]:
         """Parse scraped HTML content to extract training unit details"""
         return {

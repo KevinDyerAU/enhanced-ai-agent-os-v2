@@ -14,9 +14,9 @@ import {
   User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import AirlockDashboard from './components/AirlockDashboard';
-import ValidationViewer from './components/ValidationViewer';
-import ChatInterface from './components/ChatInterface';
+import AirlockDashboard from './AirlockDashboard';
+import ValidationViewer from './ValidationViewer';
+import ChatInterface from './ChatInterface';
 import './App.css';
 
 function App() {
