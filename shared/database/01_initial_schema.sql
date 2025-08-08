@@ -1,5 +1,5 @@
-
-CREATE TABLE agents (
+-- Create tables with IF NOT EXISTS to prevent errors if they already exist
+CREATE TABLE IF NOT EXISTS agents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     type VARCHAR(100) NOT NULL, -- 'ideation', 'design', 'video', 'social_media', 'orchestration'
@@ -10,7 +10,7 @@ CREATE TABLE agents (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE agent_type_policies (
+CREATE TABLE IF NOT EXISTS agent_type_policies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_type VARCHAR(100) NOT NULL,
     policy_name VARCHAR(255) NOT NULL,
@@ -20,7 +20,8 @@ CREATE TABLE agent_type_policies (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE tasks (
+-- Create tasks table if it doesn't exist
+CREATE TABLE IF NOT EXISTS tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(500) NOT NULL,
     description TEXT,
@@ -38,7 +39,10 @@ CREATE TABLE tasks (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE creative_assets (
+
+
+-- Create creative_assets table if it doesn't exist
+CREATE TABLE IF NOT EXISTS creative_assets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id UUID REFERENCES tasks(id),
     type VARCHAR(100) NOT NULL, -- 'image', 'video', 'text', 'design', 'campaign'
@@ -59,7 +63,10 @@ CREATE TABLE creative_assets (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE audit_logs (
+
+
+-- Create audit_logs table if it doesn't exist
+CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type VARCHAR(100) NOT NULL, -- 'task_created', 'asset_approved', 'policy_violation', etc.
     entity_type VARCHAR(100) NOT NULL, -- 'task', 'asset', 'agent', 'user'
@@ -74,7 +81,10 @@ CREATE TABLE audit_logs (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE compliance_validations (
+
+
+-- Create compliance_validations table if it doesn't exist
+CREATE TABLE IF NOT EXISTS compliance_validations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type VARCHAR(100) NOT NULL, -- 'task', 'asset', 'campaign'
     entity_id UUID NOT NULL,
@@ -88,7 +98,10 @@ CREATE TABLE compliance_validations (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE ai_product_integrations (
+
+
+-- Create ai_product_integrations table if it doesn't exist
+CREATE TABLE IF NOT EXISTS ai_product_integrations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_name VARCHAR(255) NOT NULL, -- 'canva', 'descript', 'openai', etc.
     integration_type VARCHAR(100) NOT NULL, -- 'api', 'webhook', 'oauth'
@@ -100,7 +113,7 @@ CREATE TABLE ai_product_integrations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE integration_usage (
+CREATE TABLE IF NOT EXISTS integration_usage (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     integration_id UUID REFERENCES ai_product_integrations(id),
     agent_id UUID REFERENCES agents(id),
@@ -114,7 +127,10 @@ CREATE TABLE integration_usage (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE social_media_campaigns (
+
+
+-- Create social_media_campaigns table if it doesn't exist
+CREATE TABLE IF NOT EXISTS social_media_campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(500) NOT NULL,
     description TEXT,
