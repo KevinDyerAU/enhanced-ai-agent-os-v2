@@ -1,43 +1,112 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  scrape_timeout: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - 'alert.rules'
 
 scrape_configs:
   - job_name: 'training-validation-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
     static_configs:
       - targets: ['training_validation_service:8033']
         labels:
           service: 'training-validation'
           environment: 'production'
-    metrics_path: '/metrics'
-    scrape_interval: 15s
 
   - job_name: 'orchestration-agent'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
     static_configs:
       - targets: ['orchestration_agent:8000']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
+        labels:
+          service: 'orchestration'
+          environment: 'production'
   
   - job_name: 'airlock-system'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
     static_configs:
       - targets: ['airlock_system:8007']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
+        labels:
+          service: 'airlock'
+          environment: 'production'
     
   - job_name: 'ideation-agent'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
     static_configs:
       - targets: ['ideation_agent:8001']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
+        labels:
+          service: 'ideation'
+          environment: 'production'
     
   - job_name: 'data-architecture'
-    static_configs:
-      - targets: ['data_architecture:8020']
     metrics_path: '/metrics'
     scrape_interval: 15s
-  
-  - job_name: 'postgres'
     static_configs:
-      - targets: ['postgres:5432']
+      - targets: ['data_architecture:8020']
+        labels:
+          service: 'data-architecture'
+          environment: 'production'
+  
+  - job_name: 'design-agent'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['design_agent:8002']
+        labels:
+          service: 'design'
+          environment: 'production'
+
+  - job_name: 'video-agent'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['video_agent:8003']
+        labels:
+          service: 'video'
+          environment: 'production'
+
+  - job_name: 'social-media-manager'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['social_media_manager:8004']
+        labels:
+          service: 'social-media'
+          environment: 'production'
+
+  - job_name: 'compliance-engine'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['compliance_engine:8005']
+        labels:
+          service: 'compliance'
+          environment: 'production'
+
+  - job_name: 'audit-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['audit_service:8006']
+        labels:
+          service: 'audit'
+          environment: 'production'
+
+  - job_name: 'postgres-exporter'
     metrics_path: '/metrics'
     scrape_interval: 30s
+    static_configs:
+      - targets: ['postgres_exporter:9187']
+        labels:
+          service: 'postgres'
+          environment: 'production'
