@@ -1,4 +1,4 @@
-
+-- Create airlock_content_types table if it doesn't exist
 CREATE TABLE IF NOT EXISTS airlock_content_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS airlock_content_types (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create airlock_items table if it doesn't exist
 CREATE TABLE IF NOT EXISTS airlock_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content_type_id INTEGER NOT NULL REFERENCES airlock_content_types(id),
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS airlock_items (
     UNIQUE(source_service, source_id)
 );
 
-CREATE TABLE IF NOT EXISTS airlock_chat_sessions (
+CREATE TABLE airlock_chat_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     participant_type VARCHAR(20) NOT NULL CHECK (participant_type IN ('human', 'agent')),
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS airlock_chat_sessions (
     UNIQUE(airlock_item_id, participant_type, participant_id)
 );
 
-CREATE TABLE IF NOT EXISTS airlock_chat_messages (
+CREATE TABLE airlock_chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES airlock_chat_sessions(id) ON DELETE CASCADE,
     sender_type VARCHAR(20) NOT NULL CHECK (sender_type IN ('human', 'agent')),
@@ -58,7 +59,7 @@ CREATE TABLE IF NOT EXISTS airlock_chat_messages (
     is_deleted BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE IF NOT EXISTS airlock_feedback (
+CREATE TABLE airlock_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     feedback_type VARCHAR(50) NOT NULL CHECK (feedback_type IN ('approval', 'rejection', 'suggestion', 'question', 'rating', 'revision_request')),
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS airlock_feedback (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS airlock_revisions (
+CREATE TABLE airlock_revisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     revision_number INTEGER NOT NULL,

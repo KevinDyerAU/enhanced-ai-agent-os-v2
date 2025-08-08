@@ -1,5 +1,5 @@
-
-CREATE TABLE training_units (
+-- Create training_units table if it doesn't exist
+CREATE TABLE IF NOT EXISTS training_units (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     unit_code VARCHAR(20) NOT NULL UNIQUE, -- e.g., 'BSBCMM411'
     title VARCHAR(500) NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE training_units (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE validation_sessions (
+CREATE TABLE IF NOT EXISTS validation_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(500) NOT NULL,
     description TEXT,
@@ -34,7 +34,7 @@ CREATE TABLE validation_sessions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE validation_documents (
+CREATE TABLE IF NOT EXISTS validation_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES validation_sessions(id),
     filename VARCHAR(500) NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE validation_documents (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE validation_results (
+CREATE TABLE IF NOT EXISTS validation_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES validation_sessions(id),
     document_id UUID REFERENCES validation_documents(id),
@@ -63,7 +63,7 @@ CREATE TABLE validation_results (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE generated_questions (
+CREATE TABLE IF NOT EXISTS generated_questions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES validation_sessions(id),
     training_unit_id UUID REFERENCES training_units(id),
@@ -83,7 +83,7 @@ CREATE TABLE generated_questions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE question_library (
+CREATE TABLE IF NOT EXISTS question_library (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     unit_code VARCHAR(20) NOT NULL,
     question_id UUID REFERENCES generated_questions(id),
@@ -96,7 +96,7 @@ CREATE TABLE question_library (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE validation_reports (
+CREATE TABLE IF NOT EXISTS validation_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES validation_sessions(id),
     report_type VARCHAR(50) NOT NULL, -- 'summary', 'detailed', 'executive'
@@ -109,7 +109,7 @@ CREATE TABLE validation_reports (
     generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE training_validation_audit (
+CREATE TABLE IF NOT EXISTS training_validation_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES validation_sessions(id),
     event_type VARCHAR(100) NOT NULL, -- 'session_created', 'document_uploaded', 'validation_completed', 'question_generated'
