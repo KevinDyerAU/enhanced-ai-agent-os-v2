@@ -1,5 +1,6 @@
 -- Universal Airlock Tables
-CREATE TABLE airlock_content_types (
+-- Create airlock_content_types table if it doesn't exist
+CREATE TABLE IF NOT EXISTS airlock_content_types (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL UNIQUE, -- 'training_validation', 'creative_asset', 'ideation', etc.
     description TEXT,
@@ -8,7 +9,8 @@ CREATE TABLE airlock_content_types (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE airlock_items (
+-- Create airlock_items table if it doesn't exist
+CREATE TABLE IF NOT EXISTS airlock_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content_type_id UUID NOT NULL REFERENCES airlock_content_types(id),
     source_service VARCHAR(100) NOT NULL, -- 'training_validation', 'ideation', etc.
@@ -30,7 +32,7 @@ CREATE TABLE airlock_items (
     UNIQUE(source_service, source_id)
 );
 
-CREATE TABLE airlock_chat_sessions (
+CREATE TABLE IF NOT EXISTS airlock_chat_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     participant_type VARCHAR(50) NOT NULL, -- 'human', 'agent'
@@ -38,7 +40,7 @@ CREATE TABLE airlock_chat_sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE airlock_chat_messages (
+CREATE TABLE IF NOT EXISTS airlock_chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES airlock_chat_sessions(id) ON DELETE CASCADE,
     sender_type VARCHAR(50) NOT NULL, -- 'human', 'agent'
@@ -49,7 +51,7 @@ CREATE TABLE airlock_chat_messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE airlock_feedback (
+CREATE TABLE IF NOT EXISTS airlock_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     feedback_type VARCHAR(50) NOT NULL, -- 'approval', 'rejection', 'suggestion', 'rating'
@@ -58,7 +60,7 @@ CREATE TABLE airlock_feedback (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE airlock_revisions (
+CREATE TABLE IF NOT EXISTS airlock_revisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     airlock_item_id UUID NOT NULL REFERENCES airlock_items(id) ON DELETE CASCADE,
     revision_number INTEGER NOT NULL,
