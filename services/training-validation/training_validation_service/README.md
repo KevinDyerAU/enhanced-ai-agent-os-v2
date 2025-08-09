@@ -63,29 +63,116 @@ Interactive API documentation is available at:
 - Swagger UI: http://localhost:8033/docs
 - ReDoc: http://localhost:8033/redoc
 
+## Guided Validation Flow
+
+The Training Validation Service provides a guided workflow for validating training materials against competency standards. Here's the step-by-step process:
+
+### 1. Create a Validation Session
+Start by creating a new validation session with the training unit details:
+
+```http
+POST /api/v1/validation-sessions
+Content-Type: application/json
+
+{
+  "name": "Validation for BSBWHS521",
+  "description": "Validation session for unit BSBWHS521",
+  "training_unit_id": "550e8400-e29b-41d4-a716-446655440000",
+  "configuration": {
+    "source_url": "https://training.gov.au/Training/Details/BSBWHS521",
+    "original_code": "BSBWHS521"
+  },
+  "created_by": "user@example.com"
+}
+```
+
+### 2. Upload Training Materials
+Upload documents for validation against the training unit:
+
+```http
+POST /api/v1/validation-sessions/{session_id}/documents
+Content-Type: multipart/form-data
+
+-- Form Data --
+file: [your-file.pdf]
+```
+
+### 3. Retrieve Training Unit Data (Optional)
+If you haven't already, retrieve the official training unit data:
+
+```http
+POST /api/v1/training-units/retrieve
+Content-Type: application/json
+
+{
+  "unit_code": "BSBWHS521",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### 4. Execute Validation
+Run the validation process on the uploaded documents:
+
+```http
+POST /api/v1/validation-sessions/{session_id}/validate
+Content-Type: application/json
+
+{
+  "strictness_level": "normal",
+  "submit_for_review": true
+}
+```
+
+### 5. Generate Questions (Optional)
+Generate SMART assessment questions based on the training materials:
+
+```http
+POST /api/v1/validation-sessions/{session_id}/generate-questions
+Content-Type: application/json
+
+{
+  "question_count": 10,
+  "question_types": ["knowledge", "scenario"]
+}
+```
+
+### 6. Generate Validation Report
+Create a comprehensive validation report:
+
+```http
+POST /api/v1/validation-sessions/{session_id}/generate-report
+Content-Type: application/json
+
+{
+  "format_type": "markdown",
+  "include_questions": true
+}
+```
+
 ## Key Endpoints
 
 ### Session Management
-- `POST /sessions/` - Create a new validation session
-- `GET /sessions/` - List validation sessions
-- `GET /sessions/{session_id}` - Get session details
+- `POST /api/v1/validation-sessions` - Create a new validation session
+- `GET /api/v1/validation-sessions` - List validation sessions
+- `GET /api/v1/validation-sessions/{session_id}` - Get session details
 
 ### Document Processing
-- `POST /documents/upload/{session_id}` - Upload a document for validation
-- `POST /documents/process` - Process a document without validation
+- `POST /api/v1/validation-sessions/{session_id}/documents` - Upload a document for validation (multipart/form-data)
+- `POST /api/v1/documents/upload` - Process a document without validation
 
 ### Validation
-- `POST /validation/{session_id}/execute` - Execute validation for a session
-- `GET /validation/{session_id}/results` - Get validation results
+- `POST /api/v1/validation-sessions/{session_id}/validate` - Execute validation for a session
+- `GET /api/v1/validation-sessions/{session_id}/results` - Get validation results
 
 ### Reports
-- `GET /reports/{session_id}` - Generate a comprehensive report
-- `GET /reports/{report_id}/download` - Download a report
+- `POST /api/v1/validation-sessions/{session_id}/generate-report` - Generate a comprehensive report
+- `GET /api/v1/reports/{report_id}` - Get report details
+- `GET /api/v1/reports/{report_id}/download` - Download a report
 
 ### Questions
-- `POST /questions/generate/{session_id}` - Generate SMART questions
-- `GET /questions/session/{session_id}` - Get questions for a session
-- `GET /questions/search` - Search questions
+- `POST /api/v1/validation-sessions/{session_id}/generate-questions` - Generate SMART questions
+- `GET /api/v1/validation-sessions/{session_id}/questions` - Get questions for a session
+- `GET /api/v1/questions` - Search questions with filters
 
 ## Monitoring
 

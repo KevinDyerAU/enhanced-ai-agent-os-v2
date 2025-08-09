@@ -102,7 +102,7 @@ class TrainingValidationAPI {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await api.post(`/validation-sessions/${sessionId}/upload-document`, formData, {
+    const response = await api.post(`/api/v1/validation-sessions/${sessionId}/documents`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
