@@ -18,11 +18,27 @@ class DocumentParser:
         try:
             with open(file_path, "rb") as f:
                 files = shared.Files(content=f.read(), file_name=os.path.basename(file_path))
+            
             req = shared.PartitionParameters(files=files, strategy=strategy)
             res = self.client.general.partition(req)
+            
             if res.elements:
-                return {"elements": [element.to_dict() for element in res.elements]}
+                # Convert elements to a serializable format
+                elements = []
+                for element in res.elements:
+                    if hasattr(element, 'to_dict') and callable(element.to_dict):
+                        elements.append(element.to_dict())
+                    elif hasattr(element, '__dict__'):
+                        elements.append(element.__dict__)
+                    else:
+                        elements.append(str(element))
+                return {"elements": elements}
+                
             return None
+            
         except SDKError as e:
             self.logger.error(f"SDKError parsing {file_path}: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error parsing {file_path}: {str(e)}")
             return None
